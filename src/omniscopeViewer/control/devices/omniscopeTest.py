@@ -97,6 +97,8 @@ class MultiCameraCapture:
             if ret:
                 # Store the frame in the corresponding index
                 self.frames[index] = frame
+            else:
+                self.frames[index] = np.zeros((npixelY, npixelX, 3), dtype=np.uint8)
 
     def get_concatenated_frame2(self):
         # Create a list of frames from all cameras
@@ -125,7 +127,6 @@ class MultiCameraCapture:
         # Check if the number of frames matches the grid size
         if num_frames != rows * cols:
             print('Error: Number of frames does not match the grid size.')
-            return None
 
         # Create an empty grid to store the frames
         grid = np.empty((0, frame_list[0].shape[1]*cols, 3), dtype=np.uint8)
@@ -133,7 +134,10 @@ class MultiCameraCapture:
         # Concatenate frames row by row
         for i in range(0, num_frames, cols):
             row = np.concatenate(frame_list[i:i + cols], axis=1)
-            grid = np.concatenate((grid, row), axis=0)
+            try:
+                grid = np.concatenate((grid, row), axis=0)
+            except:
+                break
 
         return grid
 
