@@ -1,8 +1,8 @@
 import cv2
 import numpy as np
 from dataclasses import replace
-from napari_live_recording.common import ROI, ColorType
-from napari_live_recording.control.devices.interface import (
+from omniscopeViewer.common import ROI, ColorType
+from omniscopeViewer.control.devices.interface import (
     ICamera,
     NumberParameter,
     ListParameter
@@ -43,6 +43,8 @@ class OpenCV(ICamera):
             name (str): user-defined camera name.
             deviceID (Union[str, int]): camera identifier.
         """
+        if deviceID == "DemoCamera":
+            deviceID = 0
         self.__capture = cv2.VideoCapture(int(deviceID))
 
         # read OpenCV parameters

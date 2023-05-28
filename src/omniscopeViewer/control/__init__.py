@@ -4,14 +4,14 @@ import os
 from contextlib import contextmanager
 from napari.qt.threading import thread_worker, FunctionWorker
 from qtpy.QtCore import QThread, QObject, Signal
-from napari_live_recording.common import (
+from omniscopeViewer.common import (
     TIFF_PHOTOMETRIC_MAP,
     WriterInfo,
     FileFormat,
     RecordType, 
     ROI
 )
-from napari_live_recording.control.devices.interface import ICamera
+from omniscopeViewer.control.devices.interface import ICamera
 from typing import Dict, NamedTuple
 from functools import partial
 from time import time
@@ -179,7 +179,7 @@ class MainController(QObject):
             writeFuncs = [partial(
                             file.write, 
                             photometric=TIFF_PHOTOMETRIC_MAP[colorMap][0],
-                            software="napari-live-recording",
+                            software="omniscopeViewer",
                             contiguous=kwargs.get("imagej", False)
                         ) 
                         for file, size, colorMap in zip(list(files.values()), sizes, colorMaps)]

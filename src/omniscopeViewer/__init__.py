@@ -1,7 +1,7 @@
 from qtpy.QtWidgets import QWidget, QApplication
 from napari.viewer import Viewer
-from napari_live_recording.ui import ViewerAnchor
-from napari_live_recording.control import MainController
+from omniscopeViewer.ui import ViewerAnchor
+from omniscopeViewer.control import MainController
 
 class NapariLiveRecording(QWidget):
     def __init__(self, napari_viewer: Viewer) -> None:

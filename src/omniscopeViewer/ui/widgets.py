@@ -15,10 +15,9 @@ from superqt import QLabeledSlider, QLabeledDoubleSlider, QEnumComboBox
 from qtpy.QtWidgets import QFormLayout, QGridLayout, QGroupBox
 from abc import ABC, abstractmethod
 from dataclasses import replace
-from napari_live_recording.common import ROI, FileFormat, RecordType
+from omniscopeViewer.common import ROI, FileFormat, RecordType
 from enum import Enum
 from typing import Dict, List, Tuple
-from pymmcore_plus import CMMCorePlus
 
 class Timer(QTimer):
     pass

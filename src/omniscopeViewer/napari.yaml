@@ -1,0 +1,10 @@
+name: omniscopeViewer
+schema_version: 0.1.0
+contributions:
+  commands:
+    - id: omniscopeViewer.open
+      title: Live recording
+      python_name: omniscopeViewer:NapariLiveRecording
+  widgets:
+    - command: omniscopeViewer.open
+      display_name: Live recording

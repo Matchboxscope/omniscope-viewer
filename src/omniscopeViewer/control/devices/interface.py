@@ -2,7 +2,7 @@ import numpy as np
 from abc import abstractmethod
 from typing import Union, Tuple
 from qtpy.QtCore import QObject
-from napari_live_recording.common import ROI, ColorType
+from omniscopeViewer.common import ROI, ColorType
 from typing import Dict, List, Any
 from dataclasses import dataclass, replace
 from abc import ABC
