@@ -86,7 +86,7 @@ class ICamera(QObject):
         raise NotImplementedError()
 
     @abstractmethod
-    def grabFrame(self) -> np.ndarray:
+    def grabFrame(self, isSnap=False) -> np.ndarray:
         """Returns the latest captured frame as a numpy array.
         """
         raise NotImplementedError()

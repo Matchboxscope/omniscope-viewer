@@ -99,7 +99,7 @@ class MainController(QObject):
                 # camera already deleted
                 pass
     def snap(self, cameraKey: str) -> np.ndarray:
-        return self.deviceControllers[cameraKey].device.grabFrame()
+        return self.deviceControllers[cameraKey].device.grabFrame(isSnap=True)
 
     def live(self, toggle: bool) -> None:
         self.__isLive = toggle

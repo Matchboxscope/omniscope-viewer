@@ -8,19 +8,20 @@ from omniscopeViewer.control.devices.interface import (
     ListParameter
 )
 from typing import Union, Any
-from sys import platform
 import cv2
 import numpy as np
-from flask import Flask, Response
 import threading
 import time
 import requests
 import requests
 import threading
 import os
-
+import imageio
+import socket
+import datetime
+            
 ''' DUMMY FRAME PRODUCER '''
-app = Flask(__name__)
+
 npixelX = 320
 npixelY = 240
 
@@ -30,24 +31,31 @@ class MultiCameraCapture:
     def __init__(self, urls):
         self.urls = urls
         self.frames = [None] * len(urls)
-        self.stop_event = threading.Event()
+        self.isRunning = False
+        self.HDframes = [None] * len(urls)
 
     def start(self):
+        self.streamingThreads = []
         # Create and start a thread for each camera
-        for i, url in enumerate(self.urls):
-            t = threading.Thread(target=self._capture_frame, args=(i, url))
-            t.start()
+        if not self.isRunning:
+            for i, url in enumerate(self.urls):
+                self.streamingThreads.append(threading.Thread(target=self._capture_frame, args=(i, url)))
+                self.streamingThreads[-1].start()
 
     def stop(self):
         # Set the stop event to terminate the threads
-        self.stop_event.set()
-
+        self.isRunning = False
+        # wait until all threads have terminated
+        for t in self.streamingThreads:
+            t.join()
+        
     def _capture_frame(self, index, url):
-        while True:
+        self.isRunning = True
+        while self.isRunning:
             try:
                 stream = requests.get(url+":81", stream=True)#, timeout=)
                 bytes_ = bytes()
-                for chunk in stream.iter_content(chunk_size=1024):
+                for chunk in stream.iter_content(chunk_size=8*1024):
                     bytes_ += chunk
                     a = bytes_.find(b'\xff\xd8')
                     b = bytes_.find(b'\xff\xd9')
@@ -56,57 +64,48 @@ class MultiCameraCapture:
                         bytes_ = bytes_[b+2:]
                         try:
                             self.frames[index] = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
-                            print(np.mean(self.frames[index]))
-                            time.sleep(.1) # limit fps
+                            #print(np.mean(self.frames[index]))
+                            #time.sleep(.1) # limit fps
                         except:
-                            self.frames[index] = np.zeros((npixelY, npixelX, 3), dtype=np.uint8)
+                            pass #self.frames[index] = np.zeros((npixelY, npixelX, 3), dtype=np.uint8)
+                        if not self.isRunning:
+                            break
             except (requests.exceptions.RequestException) as e:
                 print("Error occurred:", e)
                 print("Reconnecting in 5 seconds...")
                 time.sleep(1)
 
+    def snap(self, output_directory="downloaded_frames"):
+        
+        # Create a directory to store the downloaded frames
+        # FIXME: Hardcoded location - we want that adaptable!
+        os.makedirs(output_directory, exist_ok=True)
+        os.chdir(output_directory)
 
-    def download_jpeg(self, url):
-        response = requests.get(url)
-        if response.status_code == 200:
-            content = response.content
-            filename = url.split("/")[-1]
-            with open(filename, "wb") as f:
-                f.write(content)
-            print(f"Downloaded: {filename}")
-
-    def download_frames(self, urls):
+        # initiate a download high-res image from each camera
         threads = []
-        for url in urls:
-            thread = threading.Thread(target=self.download_jpeg, args=(url,))
+        
+        for i, url in enumerate(self.urls):
+            thread = threading.Thread(target=self.download_jpeg, args=(i, url))
             thread.start()
             threads.append(thread)
-
+  
         # Wait for all threads to finish
         for thread in threads:
-            thread.join()
+            thread.join()   
+        return self.HDframes
     
-    
-            # Create a directory to store the downloaded frames
-            output_directory = "downloaded_frames"
-            os.makedirs(output_directory, exist_ok=True)
-            os.chdir(output_directory)
-
-            # Specify the list of URLs
-            url_list = [
-                "http://example.com/capture1.jpeg",
-                "http://example.com/capture2.jpeg",
-                "http://example.com/capture3.jpeg"
-            ]
-            # Create a list of URLs from the scanned IPs
-            for iIP in scannedIPs: 
-                stream_urls.append(iIP["IP"]+":"+str(streamingPort))
-
-
-
-            self.download_frames(url_list)
-        
-             
+    def download_jpeg(self, index, url):
+        url = url+"/capture"
+        mImage = imageio.imread(url) 
+        if type(mImage)==np.ndarray:
+            # adding timestamp to filename
+            timeStamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = timeStamp+"_"+url.split("/")[-1]+".jpeg"
+            self.HDframes[index] = mImage
+            
+            # save image
+            cv2.imwrite(filename, mImage)
 
     def get_concatenated_frame(self):
         # Create a list of frames from all cameras
@@ -154,31 +153,28 @@ class omniscope(ICamera):
             name (str): user-defined camera name.
             deviceID (Union[str, int]): camera identifier.
         """
+        #FIXME: What if we scan a second time? Napari will crash!
         
         # URLs of the MJPEG streams
-        stream_urls = []
+        cameraURLs = []
         
         # Define the range of IP addresses to scan
         start_ip = 1
         end_ip = 255
 
-        baseUrl = "192.168.43."
+        baseUrl=""
+        for i in socket.gethostbyname(socket.gethostname()).split('.')[0:-1]:
+             baseUrl += i + '.'
         streamingPort = 81
         scannedIPs = self.scan_ips(baseUrl, start_ip, end_ip)
         print("Scanned IP addresses:", scannedIPs)
 
         # Create a list of URLs from the scanned IPs
         for iIP in scannedIPs: 
-            stream_urls.append(iIP["IP"]+":"+str(streamingPort))
+            cameraURLs.append(iIP["IP"])
 
         # Create an instance of MultiCameraCapture
-        self.capture = MultiCameraCapture(stream_urls)
-
-        # Start capturing frames from the cameras asynchronously
-        self.capture.start()
-
-        # Wait for a while to capture frames
-        time.sleep(1)
+        self.capture = MultiCameraCapture(cameraURLs)
 
         # read omniscope parameters
         width = npixelX
@@ -196,16 +192,23 @@ class omniscope(ICamera):
         super().__init__(name, deviceID, parameters, sensorShape)
         
     def setAcquisitionStatus(self, started: bool) -> None:
-        pass
+        if started:
+            # Start capturing frames from the cameras asynchronously
+            self.capture.start()
+
+            # Wait for a while to capture frames
+            time.sleep(1)
+        else:
+            self.capture.stop()
     
     def grabFrame(self, isSnap=False) -> np.ndarray:
         # Read the first frame
         # Get the concatenated frame
         
         if isSnap:
-            self.capture.downloadFrames()
-            
-        frame = self.capture.get_concatenated_frame()
+            frame = self.capture.snap()
+        else:
+            frame = self.capture.get_concatenated_frame()
         
         
         return frame

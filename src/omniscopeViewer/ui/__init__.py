@@ -145,3 +145,9 @@ class ViewerAnchor:
         except KeyError:
             # needed in case the layer of that live recording does not exist
             self.viewer.add_image(data, name=layerKey)
+        except AttributeError:
+            # list is coming, we want to display it as layers
+            for index, iImage in enumerate(data):
+                self.viewer.add_image(iImage, name=layerKey+str(index))
+                
+                
