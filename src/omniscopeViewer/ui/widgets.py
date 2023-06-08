@@ -9,10 +9,11 @@ from qtpy.QtWidgets import (
     QSpinBox,
     QLineEdit, 
     QPushButton,
-    QFileDialog
+    QFileDialog,
+    QSlider
 )
 from superqt import QLabeledSlider, QLabeledDoubleSlider, QEnumComboBox
-from qtpy.QtWidgets import QFormLayout, QGridLayout, QGroupBox
+from qtpy.QtWidgets import QFormLayout, QGridLayout, QGroupBox, QHBoxLayout
 from abc import ABC, abstractmethod
 from dataclasses import replace
 from omniscopeViewer.common import ROI, FileFormat, RecordType
@@ -336,6 +337,109 @@ class CameraSelection(QObject):
         else:
             self.addButton.setEnabled(False)
 
+
+class HardwareControl(QObject):
+    newCameraRequested = Signal(str, str, str)
+
+    def __init__(self) -> None:
+        """
+        """
+        super(HardwareControl, self).__init__()        
+        self.group = QGroupBox()
+        self.focusLabel = QLabel("Focus (+/-)")
+        self.focusUpButton = QPushButton("+")
+        self.focusDownButton = QPushButton("-")
+        self.focusSliderLabel = QLabel("Focus value")
+        self.focusValueSlider = QSlider(Qt.Horizontal)
+        self.focusValueSlider.setMinimum(0)
+        self.focusValueSlider.setMaximum(1000)
+        self.focusValueSlider.setValue(500)
+        self.focusValueSlider.setTickPosition(QSlider.TicksBelow)
+        self.focusValueSlider.setTickInterval(50)
+        
+        self.lightLabel = QLabel("LED (on/off)")
+        self.lightOnButton = QPushButton("+")
+        self.lightOffButton = QPushButton("-")
+        self.lightValueSliderLabel = QLabel("LED value")
+        self.lightValueSlider = QSlider(Qt.Horizontal)
+        self.lightValueSlider.setMinimum(0)
+        self.lightValueSlider.setMaximum(255)
+        self.lightValueSlider.setValue(100)
+        self.lightValueSlider.setTickPosition(QSlider.TicksBelow)
+        self.lightValueSlider.setTickInterval(5)
+        
+        
+        # create widget layout
+        self.focusUpButton.clicked.connect(self.setFocusUp)
+        self.focusDownButton.clicked.connect(self.setFocusDown)
+        self.focusValueSlider.valueChanged.connect(self.setFocusValue)
+        self.lightOnButton.clicked.connect(self.setLightOn)
+        self.lightOffButton.clicked.connect(self.setLightOff)
+        self.lightValueSlider.valueChanged.connect(self.setLightValue)
+
+        layoutFocus = QHBoxLayout()
+        layoutFocus.addWidget(self.focusLabel)
+        layoutFocus.addWidget(self.focusUpButton)
+        layoutFocus.addWidget(self.focusDownButton)
+        
+        layoutFocusSlider = QHBoxLayout()
+        layoutFocusSlider.addWidget(self.focusSliderLabel)
+        layoutFocusSlider.addWidget(self.focusValueSlider)
+        
+        layoutIllumination = QHBoxLayout()
+        layoutIllumination.addWidget(self.lightLabel)
+        layoutIllumination.addWidget(self.lightOnButton)
+        layoutIllumination.addWidget(self.lightOffButton)
+
+        layoutIlluminationSlider = QHBoxLayout()
+        layoutIlluminationSlider.addWidget(self.lightValueSliderLabel)
+        layoutIlluminationSlider.addWidget(self.lightValueSlider)
+        
+        self.formLayout = QFormLayout()
+        self.formLayout.addRow(layoutFocus)
+        self.formLayout.addRow(layoutFocusSlider)
+        self.formLayout.addRow(layoutIllumination)
+        self.formLayout.addRow(layoutIlluminationSlider)
+        
+        self.group.setLayout(self.formLayout)
+        self.group.setFlat(True)
+        
+        #FIXME: We should not mix it with hardware I/O, but where should this thread go? 
+        import uc2rest
+        import numpy as np
+        port = "unknown"
+        # setup the ESP32
+        self.ESP32 = uc2rest.UC2Client(serialport=port, DEBUG=False)
+        self.ESP32.motor.set_motor_enable(enable=True, enableauto=False)# always on
+
+    def setLightValue(self):
+        lightValue = self.lightValueSlider.value()
+        self.ESP32.led.send_LEDMatrix_full(intensity=(lightValue, lightValue, lightValue))
+    
+    def setFocusValue(self):
+        self.focusValueSlider.value()
+        
+    def getLightValue(self):
+        return int(self.lightValueSlider.value())
+        
+    def getFocusValue(self):
+        return int(self.focusValueSlider.value())
+        
+    def setFocusUp(self):
+        focusValue = self.getFocusValue()
+        self.ESP32.motor.move_y(steps=focusValue, speed=1000, is_blocking=False)
+        
+    def setFocusDown(self):
+        focusValue = self.getFocusValue()
+        self.ESP32.motor.move_y(steps=-focusValue, speed=1000, is_blocking=False)
+        
+    def setLightOn(self):
+        lightValue = int(self.lightValueSlider.value())
+            self.ESP32.led.send_LEDMatrix_full(intensity=(lightValue, lightValue, lightValue))
+        
+    def setLightOff(self):
+        self.ESP32.led.send_LEDMatrix_full(intensity=(0,0,0))
+    
 
 class RecordHandling(QObject):
     recordRequested = Signal(int)

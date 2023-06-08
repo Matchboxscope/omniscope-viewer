@@ -19,6 +19,7 @@ from omniscopeViewer.ui.widgets import (
     ComboBox,
     RecordHandling,
     CameraSelection,
+    HardwareControl,
     ROIHandling,
 )
 
@@ -38,9 +39,11 @@ class ViewerAnchor:
         self.selectionWidget.setAvailableCameras(list(devicesDict.keys()))
         self.selectionWidget.updateCameraSelectionUI()
         self.recordingWidget = RecordHandling()
+        self.hwcontrolWidget = HardwareControl()
 
         self.mainLayout.addRow(self.selectionWidget.group)
         self.mainLayout.addRow(self.recordingWidget.group)
+        self.mainLayout.addRow(self.hwcontrolWidget.group)
 
         self.cameraWidgetGroups = {}
         self.selectionWidget.newCameraRequested.connect(self.addCameraUI)
