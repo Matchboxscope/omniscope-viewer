@@ -435,7 +435,7 @@ class HardwareControl(QObject):
         
     def setLightOn(self):
         lightValue = int(self.lightValueSlider.value())
-            self.ESP32.led.send_LEDMatrix_full(intensity=(lightValue, lightValue, lightValue))
+        self.ESP32.led.send_LEDMatrix_full(intensity=(lightValue, lightValue, lightValue))
         
     def setLightOff(self):
         self.ESP32.led.send_LEDMatrix_full(intensity=(0,0,0))
