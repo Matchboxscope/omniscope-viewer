@@ -1,5 +1,5 @@
 from napari.viewer import Viewer
-from qtpy.QtCore import QTimer
+from qtpy.QtCore import QTimer, Qt, QSize
 from qtpy.QtWidgets import (
     QTabWidget,
     QWidget,
@@ -50,10 +50,10 @@ class ViewerAnchor:
         self.hwcontrolWidget = HardwareControl()
         self.timelapseWidget = TimeLapseHandling()
 
-        self.mainLayout.addRow(self.selectionWidget.group)
-        self.mainLayout.addRow(self.recordingWidget.group)
-        self.mainLayout.addRow(self.hwcontrolWidget.group)
-        self.mainLayout.addRow(self.timelapseWidget.group)
+        self.mainLayout.addWidget(self.selectionWidget.group)
+        self.mainLayout.addWidget(self.recordingWidget.group)
+        self.mainLayout.addWidget(self.hwcontrolWidget.group)
+        self.mainLayout.addWidget(self.timelapseWidget.group)
         verticalSpacer = QSpacerItem(0, 1, QSizePolicy.Minimum, QSizePolicy.Minimum)
         self.mainLayout.setAlignment(
             self.selectionWidget.group, Qt.AlignmentFlag.AlignTop
@@ -123,7 +123,7 @@ class ViewerAnchor:
                     widget.signals["currentTextChanged"].connect(
                         lambda text, name=name: camera.changeParameter(name, text)
                     )
-                specificSettingsLayout.addRow(widget.label, widget.widget)
+                specificSettingsLayout.addWidget(widget.label, widget.widget)
 
             specificSettingsGroup.setLayout(specificSettingsLayout)
             scrollArea.setWidget(specificSettingsGroup)
@@ -134,8 +134,8 @@ class ViewerAnchor:
 
         deleteButton = QPushButton("Delete camera")
         deleteButton.clicked.connect(lambda: self.deleteCameraUI(cameraKey))
-        settingsLayout.addRow(deleteButton)
-        settingsLayout.addRow(roiWidget)
+        settingsLayout.addWidget(deleteButton)
+        settingsLayout.addWidget(roiWidget)
         settingsGroup.setLayout(settingsLayout)
         cameraTabLayout.addWidget(settingsGroup)
         cameraTab.setLayout(cameraTabLayout)
@@ -198,6 +198,7 @@ class ViewerAnchor:
             # this copy may not be truly necessary
             # but it does not impact performance too much
             # so we keep it to avoid possible data corruption
+            if (buffer == None).any(): break
             self._updateLayer(f"Live {key}", np.copy(buffer))
 
     def _updateLayer(self, layerKey: str, data: np.ndarray) -> None:

@@ -1,8 +1,8 @@
 from pymmcore_plus import CMMCorePlus
 from pymmcore_widgets._device_property_table import DevicePropertyTable
 import numpy as np
-from napari_live_recording.common import ROI
-from napari_live_recording.control.devices.interface import ICamera
+from omniscopeViewer.common import ROI
+from omniscopeViewer.control.devices.interface import ICamera
 from typing import Union, Any
 
 
