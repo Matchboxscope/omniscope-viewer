@@ -21,6 +21,7 @@ from omniscopeViewer.ui.widgets import (
     CameraSelection,
     HardwareControl,
     ROIHandling,
+    TimeLapseHandling
 )
 
 import numpy as np
@@ -40,16 +41,21 @@ class ViewerAnchor:
         self.selectionWidget.updateCameraSelectionUI()
         self.recordingWidget = RecordHandling()
         self.hwcontrolWidget = HardwareControl()
+        self.timelapseWidget = TimeLapseHandling()
 
         self.mainLayout.addRow(self.selectionWidget.group)
         self.mainLayout.addRow(self.recordingWidget.group)
         self.mainLayout.addRow(self.hwcontrolWidget.group)
+        self.mainLayout.addRow(self.timelapseWidget.group)
 
         self.cameraWidgetGroups = {}
         self.selectionWidget.newCameraRequested.connect(self.addCameraUI)
         self.recordingWidget.signals["snapRequested"].connect(self.snap)
         self.recordingWidget.signals["liveRequested"].connect(self.live)
         self.recordingWidget.signals["recordRequested"].connect(self.record)
+        
+        #self.timelapseWidget.signals["timelapseRequested"].connect(self.timelapse)
+        
         self.mainController.recordFinished.connect(lambda: self.recordingWidget.record.setChecked(False))
 
         self.liveTimer = QTimer()
@@ -103,6 +109,19 @@ class ViewerAnchor:
         self.mainController.deleteCamera(cameraKey)
         self.mainLayout.removeRow(self.cameraWidgetGroups[cameraKey])
  
+    def timelapse(self, status: bool, period: int, zStackParams: list = (-100, 100, 20) ) -> None:
+        if status:
+            cameraKeys = list(self.cameraWidgetGroups.keys())            
+            writerInfo = WriterInfo(
+                folder=self.recordingWidget.folderTextEdit.text(),
+                filename=self.recordingWidget.filenameTextEdit.text(),
+                fileFormat=self.recordingWidget.formatComboBox.currentEnum(),
+                recordType=self.recordingWidget.recordComboBox.currentEnum(),
+                stackSize=self.recordingWidget.recordSize,
+                acquisitionTime=self.recordingWidget.recordSize
+            )
+            self.mainController.timelapse(cameraKeys, writerInfo, period, zStackParams)
+            
     def record(self, status: bool) -> None:
         if status:
             # todo: add dynamic control

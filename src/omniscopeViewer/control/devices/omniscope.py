@@ -154,7 +154,7 @@ class omniscope(ICamera):
             deviceID (Union[str, int]): camera identifier.
         """
         #FIXME: What if we scan a second time? Napari will crash!
-        
+        # FIXME: What if we have LAN and WIFI or multiple WIFI and therefore multiple addresses?
         # URLs of the MJPEG streams
         cameraURLs = []
         
@@ -162,16 +162,20 @@ class omniscope(ICamera):
         start_ip = 1
         end_ip = 255
 
-        baseUrl=""
-        for i in socket.gethostbyname(socket.gethostname()).split('.')[0:-1]:
-             baseUrl += i + '.'
-        streamingPort = 81
-        scannedIPs = self.scan_ips(baseUrl, start_ip, end_ip)
-        print("Scanned IP addresses:", scannedIPs)
+        # get all available host ip addresses
+        allHostIpAdresses = self.get_all_ip_addresses()
+        for ipAddress in allHostIpAdresses:
+            baseUrl = ""
+            mHostname = ipAddress.split('.')[0:-1]
+            for i in mHostname:
+                baseUrl += i + '.'
+            streamingPort = 81
+            scannedIPs = self.scan_ips(baseUrl, start_ip, end_ip)
+            print("Scanned IP addresses:", scannedIPs)
 
-        # Create a list of URLs from the scanned IPs
-        for iIP in scannedIPs: 
-            cameraURLs.append(iIP["IP"])
+            # Create a list of URLs from the scanned IPs
+            for iIP in scannedIPs: 
+                cameraURLs.append(iIP["IP"])
 
         # Create an instance of MultiCameraCapture
         self.capture = MultiCameraCapture(cameraURLs)
@@ -225,6 +229,21 @@ class omniscope(ICamera):
         # Stop capturing frames
         self.capture.stop()
     
+
+    def get_all_ip_addresses(self):
+        ip_addresses = []
+        
+        # Get the host name
+        host_name = socket.gethostname()
+        
+        # Get all IP addresses associated with the host name
+        try:
+            ip_addresses = socket.gethostbyname_ex(host_name)[-1]
+        except socket.gaierror:
+            pass  # Handle any exceptions here if needed
+        
+        return ip_addresses
+    
     def scan_ip(self, ip_address, results):
         url = f"http://{ip_address}/status"
 
@@ -237,11 +256,12 @@ class omniscope(ICamera):
                 
                 print(f"Connected device found at IP: {ip_address}")
                 print("Status:", data)
+                results.append({"IP":omniscopeIP,
+                    "ID":omniscopeID})  # Store the scanned IP address in the results list
+
             else:
                 print(f"No device found at IP: {ip_address}")
 
-            results.append({"IP":omniscopeIP,
-                                "ID":omniscopeID})  # Store the scanned IP address in the results list
 
         except requests.exceptions.RequestException:
             print(f"No response from IP: {ip_address}")
