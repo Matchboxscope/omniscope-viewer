@@ -124,12 +124,14 @@ class MultiCameraCapture:
         rows = 4
         cols = 6
 
-        # Check if the number of frames matches the grid size
-        if num_frames != rows * cols:
-            print('Error: Number of frames does not match the grid size.')
-
         # Create an empty grid to store the frames
         grid = np.empty((0, frame_list[0].shape[1]*cols, 3), dtype=np.uint8)
+
+        # Check if the number of frames matches the grid size
+        if num_frames != rows * cols:
+            return grid
+            print('Error: Number of frames does not match the grid size.')
+
 
         # Concatenate frames row by row
         for i in range(0, num_frames, cols):

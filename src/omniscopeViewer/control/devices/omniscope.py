@@ -109,7 +109,6 @@ class MultiCameraCapture:
 
     def get_concatenated_frame(self):
         # Create a list of frames from all cameras
-        print("Get concat frame")
         frame_list = [frame for frame in self.frames if frame is not None]
 
         if len(frame_list) == 0:
@@ -209,7 +208,6 @@ class omniscope(ICamera):
     def grabFrame(self, isSnap=False) -> np.ndarray:
         # Read the first frame
         # Get the concatenated frame
-        print("grabbing frame ")
         if isSnap:
             frame = self.capture.snap()
         else:
@@ -249,6 +247,7 @@ class omniscope(ICamera):
         url = f"http://{ip_address}/status"
 
         try:
+            # below 5s we will likely miss devices!
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
                 data = response.json()

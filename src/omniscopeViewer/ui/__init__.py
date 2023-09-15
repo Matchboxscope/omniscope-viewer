@@ -123,7 +123,7 @@ class ViewerAnchor:
                     widget.signals["currentTextChanged"].connect(
                         lambda text, name=name: camera.changeParameter(name, text)
                     )
-                specificSettingsLayout.addWidget(widget.label, widget.widget)
+                specificSettingsLayout.addRow(widget.label, widget.widget)
 
             specificSettingsGroup.setLayout(specificSettingsLayout)
             scrollArea.setWidget(specificSettingsGroup)
