@@ -32,6 +32,17 @@ class NumberParameter(Parameter):
     """Upper and lower boundaries of the possible parameter's value.
     """
 
+@dataclass
+class StringParameter(Parameter):
+    value: str
+    """Value of the parameter.
+    """
+
+@dataclass
+class BooleanParameter(Parameter):
+    value: bool
+    """Value of the parameter.
+    """
 
 @dataclass
 class ListParameter(Parameter):

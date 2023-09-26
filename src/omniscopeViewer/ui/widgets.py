@@ -92,7 +92,39 @@ class LocalWidget(ABC):
         """Common widget method to expose signals to the device."""
         pass
 
+class CheckBox(LocalWidget):
+    def __init__(
+        self, param: bool, name: str
+    ) -> None:
+        
+    @property
+    def value(self) -> bool:
+        """Returns the CheckBox current value."""
+        return self.__checkbox.isChecked()
+    
+    @value.setter
+    def value(self, value: bool) -> None:
+        """Sets the CheckBox current value to show on the widget.
 
+        Args:
+            value (bool): value to set.
+        """
+        self.__checkbox.setChecked(value)
+        
+    @property
+    def signals(self) -> Dict[str, Signal]:
+        """Returns a dictionary of signals available for the CheckBox widget.
+        Exposed signals are:
+
+        - toggled
+
+        Returns:
+            Dict: Dict of signals (key: function name, value: function objects).
+        """
+        return {
+            "toggled": self.__checkbox.toggled,
+        }
+        
 class ComboBox(LocalWidget):
     def __init__(
         self, param: List[str], name: str, unit: str = "", orientation: str = "left"
