@@ -113,6 +113,8 @@ class MultiCameraCapture:
 
         if len(frame_list) == 0:
             return None
+        if len(frame_list) == 1:
+            return frame_list[0]
 
         rows = 4
         cols = 6
@@ -170,12 +172,17 @@ class omniscope(ICamera):
             for i in mHostname:
                 baseUrl += i + '.'
             streamingPort = 81
-            scannedIPs = self.scan_ips(baseUrl, start_ip, end_ip)
-            print("Scanned IP addresses:", scannedIPs)
 
-            # Create a list of URLs from the scanned IPs
-            for iIP in scannedIPs: 
-                cameraURLs.append(iIP["IP"])
+            if ipAddress == "192.168.4.1":
+                # only one camera since we are connected to the device directly
+                scannedIPs = self.scan_ips(baseUrl, 1, 1)
+            else:
+                scannedIPs = self.scan_ips(baseUrl, start_ip, end_ip)
+                print("Scanned IP addresses:", scannedIPs)
+
+                # Create a list of URLs from the scanned IPs
+                for iIP in scannedIPs: 
+                    cameraURLs.append(iIP["IP"])
 
         # Create an instance of MultiCameraCapture
         self.capture = MultiCameraCapture(cameraURLs)
@@ -251,7 +258,10 @@ class omniscope(ICamera):
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                omniscopeID = response.json()['omniscope']
+                try:
+                    omniscopeID = response.json()['omniscope']
+                except:
+                    omniscopeID = response.json()['cam_name']
                 omniscopeIP = response.json()['stream_url'].split(":8")[0]
                 
                 print(f"Connected device found at IP: {ip_address}")

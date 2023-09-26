@@ -18,7 +18,7 @@ from omniscopeViewer.common import (
     FileFormat
 )
 from omniscopeViewer.control.devices import devicesDict, ICamera
-from omniscopeViewer.control.devices.interface import NumberParameter, BoolParameter, ListParameter, StringParameter
+from omniscopeViewer.control.devices.interface import NumberParameter, BooleanParameter, ListParameter, StringParameter
 from omniscopeViewer.control import MainController
 from omniscopeViewer.common import THIRTY_FPS, WriterInfo, RecordType, FileFormat
 from omniscopeViewer.ui.widgets import (
@@ -120,8 +120,10 @@ class ViewerAnchor:
                     widget.signals["valueChanged"].connect(
                         lambda value, name=name: camera.changeParameter(name, value)
                     )
-                if type(parameter) == BoolParameter:
-                    
+                if type(parameter) == BooleanParameter:
+                    pass # FIXME: Not implemented yet
+                if type(parameter) == StringParameter:
+                    pass # FIXME: Not implemented yet
                 else:  # ListParameter
                     widget = ComboBox(parameter.options, name)
                     widget.signals["currentTextChanged"].connect(
