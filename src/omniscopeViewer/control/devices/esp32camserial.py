@@ -11,7 +11,10 @@ from typing import Union, Any
 import cv2
 import numpy as np
 import time
-import NanoImagingPack as nip      
+try:
+    None #import NanoImagingPack as nip      
+except:
+    nip = None
 import serial
 import time
 import serial.tools.list_ports
@@ -102,15 +105,18 @@ class esp32camserial(ICamera):
         self.dz = dz
 
     def reconholo(self, image, PSFpara, N_subroi=1024, pixelsize=1e-3, dz=50e-3):
-        mimage = nip.image(np.sqrt(image))
-        mimage = nip.extract(mimage, [N_subroi,N_subroi])
-        mimage.pixelsize=(pixelsize, pixelsize)
-        mpupil = nip.ft(mimage)         
-        #nip.__make_propagator__(mpupil, PSFpara, doDampPupil=True, shape=mpupil.shape, distZ=dz)
-        cos_alpha, sin_alpha = nip.cosSinAlpha(mimage, PSFpara)
-        PhaseMap = nip.defocusPhase(cos_alpha, dz, PSFpara)
-        propagated = nip.ft2d((np.exp(1j * PhaseMap))*mpupil)
-        return np.squeeze(propagated)
+        if nip is not None:
+            mimage = nip.image(np.sqrt(image))
+            mimage = nip.extract(mimage, [N_subroi,N_subroi])
+            mimage.pixelsize=(pixelsize, pixelsize)
+            mpupil = nip.ft(mimage)         
+            #nip.__make_propagator__(mpupil, PSFpara, doDampPupil=True, shape=mpupil.shape, distZ=dz)
+            cos_alpha, sin_alpha = nip.cosSinAlpha(mimage, PSFpara)
+            PhaseMap = nip.defocusPhase(cos_alpha, dz, PSFpara)
+            propagated = nip.ft2d((np.exp(1j * PhaseMap))*mpupil)
+            return np.squeeze(propagated)
+        else: 
+            return image
 
     def computeHoloImage(self, image):
         self.valueRangeMin=0
