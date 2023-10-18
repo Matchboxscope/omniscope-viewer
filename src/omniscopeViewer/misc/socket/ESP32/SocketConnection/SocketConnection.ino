@@ -31,16 +31,79 @@
 
 AsyncWebServer server(80);
 Preferences preferences;
-const char* ssid = "BenMur"; //"Blynk";
-const char* password = "MurBen3128"; //"12345678";
-const char* websockets_server_host = "192.168.137.53"; //CHANGE HERE
-const uint16_t websockets_server_port = 3001; // OPTIONAL CHANGE
+const char* ssid = "Blynk1";
+const char* password = "12345678";
+const char* websockets_server_host = "192.168.43.235"; //CHANGE HERE
+const uint16_t websockets_server_port = 12345; // OPTIONAL CHANGE
 
 
 using namespace websockets;
 WebsocketsClient client;
 bool isWebSocketConnected;
 
+void scanWifi() {
+  Serial.println("Scan start");
+
+  // WiFi.scanNetworks will return the number of networks found.
+  int n = WiFi.scanNetworks();
+  Serial.println("Scan done");
+  if (n == 0) {
+    Serial.println("no networks found");
+  } else {
+    Serial.print(n);
+    Serial.println(" networks found");
+    Serial.println("Nr | SSID                             | RSSI | CH | Encryption");
+    for (int i = 0; i < n; ++i) {
+      // Print SSID and RSSI for each network found
+      Serial.printf("%2d", i + 1);
+      Serial.print(" | ");
+      Serial.printf("%-32.32s", WiFi.SSID(i).c_str());
+      Serial.print(" | ");
+      Serial.printf("%4d", WiFi.RSSI(i));
+      Serial.print(" | ");
+      Serial.printf("%2d", WiFi.channel(i));
+      Serial.print(" | ");
+      switch (WiFi.encryptionType(i))
+      {
+        case WIFI_AUTH_OPEN:
+          Serial.print("open");
+          break;
+        case WIFI_AUTH_WEP:
+          Serial.print("WEP");
+          break;
+        case WIFI_AUTH_WPA_PSK:
+          Serial.print("WPA");
+          break;
+        case WIFI_AUTH_WPA2_PSK:
+          Serial.print("WPA2");
+          break;
+        case WIFI_AUTH_WPA_WPA2_PSK:
+          Serial.print("WPA+WPA2");
+          break;
+        case WIFI_AUTH_WPA2_ENTERPRISE:
+          Serial.print("WPA2-EAP");
+          break;
+        case WIFI_AUTH_WPA3_PSK:
+          Serial.print("WPA3");
+          break;
+        case WIFI_AUTH_WPA2_WPA3_PSK:
+          Serial.print("WPA2+WPA3");
+          break;
+        case WIFI_AUTH_WAPI_PSK:
+          Serial.print("WAPI");
+          break;
+        default:
+          Serial.print("unknown");
+      }
+      Serial.println();
+      delay(10);
+    }
+  }
+  Serial.println("");
+
+  // Delete the scan result to free memory for code below.
+  WiFi.scanDelete();
+}
 uint32_t createUniqueID() {
   uint64_t mac = ESP.getEfuseMac(); // Get MAC address
   uint32_t upper = mac >> 32; // Get upper 16 bits
@@ -49,16 +112,9 @@ uint32_t createUniqueID() {
 }
 
 
-void onEventsCallback(WebsocketsEvent event, String data) {
-  if (event == WebsocketsEvent::ConnectionOpened) {
-    Serial.println("Connection Opened");
-    isWebSocketConnected = true;
-  } else if (event == WebsocketsEvent::ConnectionClosed) {
-    Serial.println("Connection Closed");
-    isWebSocketConnected = false;
-    webSocketConnect();
-  }
-}
+
+
+
 
 void setup() {
   isWebSocketConnected = false;
@@ -84,33 +140,35 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_UXGA;
   config.pixel_format = PIXFORMAT_JPEG; // for streaming
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
   config.fb_count = 1;
 
+  /*
+     FRAMESIZE_UXGA (1600 x 1200)
+    FRAMESIZE_QVGA (320 x 240)
+    FRAMESIZE_CIF (352 x 288)
+    FRAMESIZE_VGA (640 x 480)
+    FRAMESIZE_SVGA (800 x 600)
+    FRAMESIZE_XGA (1024 x 768)
+    FRAMESIZE_SXGA (1280 x 1024)
+  */
   // if PSRAM IC present, init with UXGA resolution and higher JPEG quality
   //                      for larger pre-allocated frame buffer.
-  if (config.pixel_format == PIXFORMAT_JPEG) {
-    if (psramFound()) {
-      config.jpeg_quality = 10;
-      config.fb_count = 2;
-      config.grab_mode = CAMERA_GRAB_LATEST;
-      config.frame_size = FRAMESIZE_QVGA; //iFRAMESIZE_UXGA;
-    } else {
-      // Limit the frame size when PSRAM is not available
-      config.frame_size = FRAMESIZE_SVGA;
-      config.fb_location = CAMERA_FB_IN_DRAM;
-    }
-  } else {
-    // Best option for face detection/recognition
-    config.frame_size = FRAMESIZE_240X240;
-#if CONFIG_IDF_TARGET_ESP32S3
+  if (psramFound()) {
+    config.jpeg_quality = 10;
     config.fb_count = 2;
-#endif
+    config.grab_mode = CAMERA_GRAB_LATEST;
+    config.frame_size = FRAMESIZE_QVGA; //iFRAMESIZE_UXGA;
+  } else {
+    Serial.println("NO PSRAM");
+    // Limit the frame size when PSRAM is not available
+    config.frame_size = FRAMESIZE_QVGA;
+    config.fb_location = CAMERA_FB_IN_DRAM;
   }
+
 
   // camera init
   esp_err_t err = esp_camera_init(&config);
@@ -121,21 +179,26 @@ void setup() {
 
   // get previously stored serverIP
   /*
-   * preferences.begin("network", false);
-  websockets_server_host = preferences.getString("wshost", websockets_server_host);
-  preferences.end();
+     preferences.begin("network", false);
+    websockets_server_host = preferences.getString("wshost", websockets_server_host);
+    preferences.end();
   */
   Serial.print("websockets_server_host : ");
   Serial.println(websockets_server_host);
 
+  scanWifi();
+
+  Serial.println("Connecting to Wifi");
+  WiFi.begin(ssid, password);
+  WiFi.setSleep(false);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
   Serial.println("");
   Serial.println("WiFi connected");
-  Serial.print("Camera Stream Ready! Go to: http://");
-  Serial.print(WiFi.localIP());
+  Serial.println("Camera Stream Ready! Go to: http://");
+  Serial.println(WiFi.localIP());
 
 
 
@@ -177,19 +240,13 @@ void setup() {
 
   server.begin();
 
-
   client.onEvent(onEventsCallback);
   webSocketConnect();
+
 }
 
-void onWebSocketEvent(WebsocketsEvent event, WebsocketsClient& client, WebsocketsMessage message) {
-  // Handle WebSocket events here
-  Serial.println("EVENT");
-}
 
 void webSocketConnect() {
-
-
   while (!client.connect(websockets_server_host, websockets_server_port, "/")) {
     delay(500);
     Serial.print(".");
@@ -197,14 +254,27 @@ void webSocketConnect() {
   Serial.println("Websocket Connected!");
 }
 
+void onEventsCallback(WebsocketsEvent event, String data) {
+  if (event == WebsocketsEvent::ConnectionOpened) {
+    Serial.println("Connection Opened");
+    isWebSocketConnected = true;
+  } else if (event == WebsocketsEvent::ConnectionClosed) {
+    Serial.println("Connection Closed");
+    //isWebSocketConnected = false;
+    //webSocketConnect();
+  }
+}
+
 void loop() {
 
-  if (client.available()) {
+
+  if (client.available(true)) {
     client.poll();
   }
 
   if (!isWebSocketConnected) return;
 
+  Serial.println("caputre image");
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
     Serial.println("Camera capture failed");
@@ -222,4 +292,5 @@ void loop() {
 
   client.sendBinary((const char*) fb->buf, fb->len);
   esp_camera_fb_return(fb);
+
 }

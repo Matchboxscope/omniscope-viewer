@@ -1,10 +1,8 @@
-import socket
 import cv2
 import numpy as np
-from multiprocessing import Process, Queue, Manager, Value
-
-import numpy as np
-import cv2
+from multiprocessing import Process, Queue, Value
+import websockets
+import asyncio
 
 class Canvas:
     def __init__(self, width=320, height=240, rows=6, cols=4):
@@ -37,55 +35,48 @@ class Canvas:
     def get_canvas(self):
         return self.canvas
     
+
+
+
 class CameraServer:
     def __init__(self, max_cameras=1):
         self.max_cameras = max_cameras
         self.queues = [Queue() for _ in range(max_cameras)]
         self.next_queue_idx = Value('i', 0)
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(("0.0.0.0", 12345))
-        self.server_socket.listen(max_cameras)
-        
         self.canvas = Canvas()
 
-    def camera_listener(self):
-        while self.next_queue_idx.value < self.max_cameras:
-            client_socket, client_address = self.server_socket.accept()
-            print(f"Connection from {client_address}")
+    async def camera_listener(self):
+        server = await websockets.serve(self.handle_camera, "0.0.0.0", 12345)
+        await server.wait_closed()
 
-            q = self.queues[self.next_queue_idx.value]
-            current_idx = self.next_queue_idx.value
-            self.next_queue_idx.value += 1
+    async def handle_camera(self, websocket, path):
+        if self.next_queue_idx.value >= self.max_cameras:
+            print("Max cameras reached.")
+            return
 
-            p = Process(target=self.receive_frame, args=(client_socket, q, current_idx))
-            p.start()
+        q = self.queues[self.next_queue_idx.value]
+        current_idx = self.next_queue_idx.value
+        self.next_queue_idx.value += 1
 
-    def receive_frame(self, client_socket, queue, idx):
         while True:
             try:
-                length = int.from_bytes(client_socket.recv(4), byteorder='big')
-                frame_data = b''
-                while len(frame_data) < length:
-                    packet = client_socket.recv(length - len(frame_data))
-                    if not packet: break
-                    frame_data += packet
-
+                frame_data = await websocket.recv()
+                if not frame_data: break
+                
                 # Extract the encoded ID from the 10th byte of the frame data
                 decoded_id = frame_data[9]
-                if decoded_id>23:
+                if decoded_id > 23:
                     decoded_id = 0
                 frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
-                frame[0][0][0]=decoded_id
-                # Decode the ID by reversing the encoding process
-                queue.put(frame)
+                frame[0][0][0] = decoded_id
+                
+                q.put(frame)
 
             except Exception as e:
-                print(f"Error occurred for camera {idx}: {e}. Attempting to reconnect...")
-                client_socket.close()
+                print(f"Error occurred for camera {current_idx}: {e}")
                 break
-
     def run(self):
-        listener = Process(target=self.camera_listener)
+        listener = Process(target=self.start_asyncio_loop)
         listener.start()
 
         while True:
@@ -104,6 +95,12 @@ class CameraServer:
 
         listener.terminate()
         cv2.destroyAllWindows()
+
+    def start_asyncio_loop(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.camera_listener())
+        loop.close()
 
 if __name__ == "__main__":
     server = CameraServer()
