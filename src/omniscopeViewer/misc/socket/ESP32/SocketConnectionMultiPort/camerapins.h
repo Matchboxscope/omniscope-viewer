@@ -17,4 +17,5 @@
 #define HREF_GPIO_NUM     47
 #define PCLK_GPIO_NUM     13
 
+#define LED_LEDC_CHANNEL  2
 #define LED_GPIO_NUM      21

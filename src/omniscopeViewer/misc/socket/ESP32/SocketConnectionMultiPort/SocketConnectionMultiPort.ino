@@ -4,54 +4,85 @@
 #include <Preferences.h>
 #include <ESPAsyncWebServer.h>
 #include "camerapins.h"
+#include <ArduinoOTA.h>
+#include <ESP32Ping.h>
 
 AsyncWebServer server(80);
 Preferences preferences;
 WiFiClient mWifiClient;
 
-const char* ssid = "Blynk1";
-const char* password = "12345678";
-const char* websockets_server_host = "192.168.43.235"; //CHANGE HERE
+const char* ssid = "Blynk"; // "omniscope"; //"Blynk1";
+const char* password = "12345678"; //"omniscope"; //"12345678";
+const char* websockets_server_host_default = "192.168.137.53"; //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
+const char* websockets_server_host = "0.0.0.0"; //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
 const uint16_t serverPort = 3333; //CHANGE HERE
-const uint16_t cameraPort = 8002;
+uint32_t cameraPort = 8001; // default port
 
-using namespace websockets;
-WebsocketsClient client;
-bool isWebSocketConnected;
-
+long tLastConnected = 0;
+long timeoutSocketConnection = 5000; // ms
 
 
 
 
 void setup() {
 
-  isWebSocketConnected = false;
+
   Serial.begin(115200);
   initCamera();
   // get previously stored serverIP
-  /*
-     preferences.begin("network", false);
-    websockets_server_host = preferences.getString("wshost", websockets_server_host);
-    preferences.end();
-  */
-  Serial.print("websockets_server_host : ");
+  preferences.begin("network", false);
+  websockets_server_host = preferences.getString("wshost", websockets_server_host).c_str();
+  preferences.end();
+  if(not isValidIP(websockets_server_host)){
+    Serial.println("IP from Prefs not valid, switching to defaultx");
+    Serial.println(websockets_server_host_default);
+    websockets_server_host = websockets_server_host_default;
+  }
+
+  Serial.print("websockets_server_host: ");
   Serial.println(websockets_server_host);
 
-  scanWifi();
+  //scanWifi();
   initWifi();
+  pingServer();
   initServer();
+  cameraPort = 8000 + createUniqueID();
   announceCameraPort();
 
 
   // Setup Websocket client
-  //mWifiClient.onEvent(onEventsCallback);
   cameraSocketConnect();
+
+  // indicate wifi LED
+  ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
+  ledcAttachPin(LED_GPIO_NUM, LED_LEDC_CHANNEL);
+
+  // Start Arduino OTA
+  ArduinoOTA.setHostname("esp32-ota");
+  ArduinoOTA.begin();   // Port defaults to 3232
 
 }
 
+bool pingServer(){
+    // Ping socket server
+  bool success = Ping.ping(websockets_server_host, 3);
+  if(!success){
+      Serial.println("Ping failed");
+      return false;
+  }
+  else{
+    Serial.println("Ping succesful.");
+    return true;
+  }
+  return true;
+
+}
 
 void cameraSocketConnect() {
-  Serial.println("Connecting to CameraSocket");
+
+
+  Serial.print("Connecting to CameraSocket on port");
+  Serial.println(cameraPort);
   int nConnectionTrials = 0;
   while (!mWifiClient.connect(websockets_server_host, cameraPort)) {
     delay(500);
@@ -63,52 +94,39 @@ void cameraSocketConnect() {
     nConnectionTrials++;
   }
   Serial.println("Websocket Connected!");
-  isWebSocketConnected = true;
+  tLastConnected = millis();
 }
 
-void onEventsCallback(WebsocketsEvent event, String data) {
-  if (event == WebsocketsEvent::ConnectionOpened) {
-    Serial.println("Connection Opened");
-    isWebSocketConnected = true;
-  } else if (event == WebsocketsEvent::ConnectionClosed) {
-    Serial.println("Connection Closed");
-    //isWebSocketConnected = false;
-    //webSocketConnect();
-  }
-}
 
 void announceCameraPort() {
   // Announce camera port via socket connection
-  Serial.println("Announcing the camera port");
+  Serial.print("Announcing the camera port: ");
+  Serial.println(cameraPort);
   while (!mWifiClient.connect(websockets_server_host, serverPort)) {
     Serial.print(".");
+    delay(500);
   }
   mWifiClient.print(cameraPort);
-
-  // Receive the reply from the server
-  byte reply_bytes[4];
-  mWifiClient.readBytes(reply_bytes, 4);
-
-  // Convert the reply to an integer
-  int reply_int = (int)reply_bytes[0] << 24 |
-                  (int)reply_bytes[1] << 16 |
-                  (int)reply_bytes[2] << 8 |
-                  (int)reply_bytes[3];
-
-  // Print the received port number
-  Serial.print("Received port number: ");
-  Serial.println(reply_int);
-
+  Serial.println("Camera Port sent");
   mWifiClient.stop();
-
 }
 
 void loop() {
 
-  if(!WiFi.status() != WL_CONNECTED)
-     ESP.restart();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wifi connection lost, restarting");
+    ledcWrite(LED_LEDC_CHANNEL, 255);
+    ESP.restart();
+  }
+  {
+    // indicate we are connected to the  WIFI
+    ledcWrite(LED_LEDC_CHANNEL, 0);
+    ArduinoOTA.handle();
+  }
+
   // Check if the client is still connected
-  if (!mWifiClient.connected()) {
+  if (!mWifiClient.connected() and (millis()-tLastConnected)>timeoutSocketConnection) {
     Serial.println("Client disconnected");
     // reconnect
     announceCameraPort();
@@ -138,6 +156,27 @@ void loop() {
 }
 
 
+bool isValidIP(const String &str) {
+  int parts[4] = {0};
+  int partCount = 0;
+
+  for (uint16_t i = 0; i < str.length(); i++) {
+    char c = str.charAt(i);
+    if (c == '.') {
+      if (parts[partCount] > 255) return false;
+      partCount++;
+      if (partCount > 3) return false;
+    } else if (c >= '0' && c <= '9') {
+      parts[partCount] = parts[partCount] * 10 + (c - '0');
+    } else {
+      return false;
+    }
+  }
+  
+  if (partCount != 3 || parts[3] > 255) return false;
+
+  return true;
+}
 
 void initServer() {
 
@@ -190,7 +229,7 @@ void  initWifi() {
     delay(500);
     Serial.print(".");
     iWifiTrial ++;
-    if(iWifiTrial>10)
+    if (iWifiTrial > 10)
       ESP.restart();
   }
   Serial.println("");
@@ -332,5 +371,6 @@ uint32_t createUniqueID() {
   uint64_t mac = ESP.getEfuseMac(); // Get MAC address
   uint32_t upper = mac >> 32; // Get upper 16 bits
   uint32_t lower = mac & 0xFFFFFFFF; // Get lower 32 bits
-  return upper ^ lower; // XOR upper and lower parts to get a 32-bit result
+  uint32_t uid = upper ^ lower; // XOR upper and lower parts to get a 32-bit result
+  return uid%1000;
 }
