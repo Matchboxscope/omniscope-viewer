@@ -5,6 +5,9 @@ import numpy as np
 import time
 import requests
 import json
+import multiprocessing.shared_memory as shm
+import array
+
 class Canvas:
     def __init__(self, width=320, height=240, rows=6, cols=4):
         self.cell_width = width
@@ -41,10 +44,8 @@ class CameraDisplayServer:
 
     def __init__(self, listen_port=3333, buffer_size=2**17, queue_size=100, width=320, height=240):
         # look-up table for camera IDs and their corresponding locations in the 24-tiled canvas
-        self.cameraID_to_canvasID = {} # key: canvasID, value: cameraID
-        # initialize look up table
-        for id in range(24):
-            self.cameraID_to_canvasID[id] = -1
+        self._manager = None
+        self.cameraID_to_canvasID = None
 
         self.listen_port = listen_port
         self.buffer_size = buffer_size
@@ -52,12 +53,25 @@ class CameraDisplayServer:
         self.width = width
         self.height = height
         self.timeoutLastFrame = 5
-
+ 
+        # Create a shared memory segment
+        # Create an array of 16-bit signed integers initialized to -1
+        arr = array.array('h', [-1]*24)
+        self.segment = shm.SharedMemory(create=True, size=2*24)
+        # Initialize all slots as -1 (or 255 in bytes)
+        self.segment.buf[:2*24] = arr.tobytes()
+        
         self.q = multiprocessing.Queue(self.queue_size)
         self.camera_ports = set()
         self.canvas = Canvas()
         self.lock = multiprocessing.Lock()
+        
 
+    @property
+    def manager(self):
+        if self._manager is None:
+            self._manager = multiprocessing.Manager()
+        return self._manager
         
 
     @staticmethod
@@ -108,9 +122,7 @@ class CameraDisplayServer:
             cameraID = json.loads(response.text)["id"]
             print(f"Camera ID: {cameraID}")
             with lock:
-                print (self.cameraID_to_canvasID)
                 canvasID = self.getCanvasID(cameraID)
-                print (self.cameraID_to_canvasID)
         else:
             print(f"Request failed with status code: {response.status_code}")
             
@@ -139,20 +151,28 @@ class CameraDisplayServer:
         s.close()
         try:self.camera_ports.remove(port)
         except:pass
+        
 
     def getCanvasID(self, cameraID):
         # we need to map the random, yet unique (per ESP) camera ID to the 0-23 canvas ID
-            if cameraID not in self.cameraID_to_canvasID:
-                # if the cameraID is not in the dictionary, add it; Use an available canvas ID that is not used yet between 0-23
-                for id in range(24):
-                    if self.cameraID_to_canvasID[id] == -1:
-                        self.cameraID_to_canvasID[id] = cameraID
-                        print(f"Camera ID {self.cameraID_to_canvasID[id]} mapped to canvas ID {id}")
-                        return id
-                else:
-                    # if the cameraID is already in the dictionary, return the canvas ID
-                    # TODO: Need to store this somewhere / sideload it - corresponds to XY locations in wellplate
-                    return self.cameraID_to_canvasID[cameraID]
+        
+        # Read shared memory data into an array
+        arr = array.array('h')
+        arr.frombytes(self.segment.buf[:])
+        
+        # check if cameraID is already in the shared memory 
+        for idx in range(24):
+            if arr[idx] == cameraID:
+                print(f"CameraID {cameraID} already in canvasID {idx}")
+                return idx
+        # if not, add it to the shared memory in an available slot
+        for idx in range(24):
+            if arr[idx] == -1:
+                arr[idx] = idx  # Just assigning idx for now, but you can use any value to mark it as used
+                # Write back the updated data to shared memory
+                self.segment.buf[:] = arr.tobytes()
+                print(f"Added cameraID {cameraID} to canvasID {idx}")
+                return idx
             
         
     def display_frames(self):
@@ -175,6 +195,7 @@ class CameraDisplayServer:
         # Start display process
         p_display = multiprocessing.Process(target=self.display_frames)
         p_display.start()
+        
 
         try:
             while True:
@@ -202,8 +223,11 @@ class CameraDisplayServer:
                     
         finally:
             server_socket.close()
+            self.segment.close()
+            self.segment.unlink()
             p_display.terminate()
 
-if __name__ == '__main__':
+if __name__ == '__main__':  
     server = CameraDisplayServer()
     server.run()
+    
