@@ -22,10 +22,8 @@ uint32_t cameraPort = 8001; // default port
 long tLastConnected = 0;
 long timeoutSocketConnection = 5000; // ms
 
-
-unsigned long messageTimestamp = 0;
-
-WebSocketsClient webSocket;
+using namespace websockets;
+WebsocketsClient wsclient;
 
 void setup() {
   Serial.begin(115200);
