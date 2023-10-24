@@ -6,6 +6,7 @@ import numpy as np
 import json
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 import multiprocessing.shared_memory as shm
+from websocket_server import WebsocketServer
 import array
 
 class CameraSocket(WebSocket):
@@ -73,7 +74,6 @@ class CameraDisplayServer:
 
     def __init__(self, listen_port=3333, buffer_size=2**17, queue_size=100, width=320, height=240):
         # look-up table for camera IDs and their corresponding locations in the 24-tiled canvas
-        self._manager = None
         self.cameraID_to_canvasID = None
 
         self.listen_port = listen_port
@@ -94,14 +94,6 @@ class CameraDisplayServer:
         self.camera_ports = set()
         self.canvas = Canvas()
         self.lock = multiprocessing.Lock()
-
-
-    @property
-    def manager(self):
-        if self._manager is None:
-            self._manager = multiprocessing.Manager()
-        return self._manager
-
 
     @staticmethod
     def is_port_in_use(port):
