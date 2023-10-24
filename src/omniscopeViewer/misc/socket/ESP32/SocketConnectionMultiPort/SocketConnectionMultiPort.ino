@@ -1,19 +1,20 @@
 #include "esp_camera.h"
 #include <WiFi.h>
-#include <ArduinoWebsockets.h>
 #include <Preferences.h>
 #include <ESPAsyncWebServer.h>
 #include "camerapins.h"
 #include <ArduinoOTA.h>
 #include <ESP32Ping.h>
 
+#include <WebSocketsClient.h>
+
 AsyncWebServer server(80);
 Preferences preferences;
 WiFiClient mWifiClient;
 
-const char* ssid = "Blynk"; // "omniscope"; //"Blynk1";
-const char* password = "12345678"; //"omniscope"; //"12345678";
-const char* websockets_server_host_default = "192.168.137.53"; //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
+const char* ssid = "BenMur"; // "omniscope"; //"Blynk1";
+const char* password = "MurBen3128"; //"omniscope"; //"12345678";
+const char* websockets_server_host_default = "192.168.2.191"; //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
 const char* websockets_server_host = "0.0.0.0"; //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
 const uint16_t serverPort = 3333; //CHANGE HERE
 uint32_t cameraPort = 8001; // default port
@@ -22,11 +23,11 @@ long tLastConnected = 0;
 long timeoutSocketConnection = 5000; // ms
 
 
+unsigned long messageTimestamp = 0;
 
+WebSocketsClient webSocket;
 
 void setup() {
-
-
   Serial.begin(115200);
   initCamera();
   // get previously stored serverIP
@@ -45,14 +46,20 @@ void setup() {
   //scanWifi();
   initWifi();
   pingServer();
-  initServer();
+  //initServer();
   cameraPort = 8000 + createUniqueID();
   announceCameraPort();
 
 
   // Setup Websocket client
-  cameraSocketConnect();
-
+  //cameraSocketConnect();
+  
+  // server address, port and URL
+  webSocket.begin(websockets_server_host_default, cameraPort, "/");
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(5000);
+  webSocket.enableHeartbeat(15000, 3000, 2); 
+    
   // indicate wifi LED
   ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
   ledcAttachPin(LED_GPIO_NUM, LED_LEDC_CHANNEL);
@@ -63,6 +70,32 @@ void setup() {
 
 }
 
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.printf("[WSc] Disconnected!\n");
+      break;
+    case WStype_CONNECTED: {
+      Serial.printf("[WSc] Connected to url: %s\n", payload);
+    }
+      break;
+    case WStype_TEXT:
+      Serial.printf("[WSc] get text: %s\n", payload);
+      break;
+    case WStype_BIN:
+      Serial.printf("[WSc] get binary length: %u\n", length);
+      break;
+    case WStype_PING:
+        // pong will be send automatically
+        Serial.printf("[WSc] get ping\n");
+        break;
+    case WStype_PONG:
+        // answer to a ping we send
+        Serial.printf("[WSc] get pong\n");
+        break;
+    }
+}
 bool pingServer(){
     // Ping socket server
   bool success = Ping.ping(websockets_server_host, 3);
@@ -84,17 +117,6 @@ void cameraSocketConnect() {
   Serial.print("Connecting to CameraSocket on port");
   Serial.println(cameraPort);
   int nConnectionTrials = 0;
-  while (!mWifiClient.connect(websockets_server_host, cameraPort)) {
-    delay(500);
-    Serial.print(".");
-    if (nConnectionTrials > 10) {
-      announceCameraPort();
-      nConnectionTrials = 0;
-    }
-    nConnectionTrials++;
-  }
-  Serial.println("Websocket Connected!");
-  tLastConnected = millis();
 }
 
 
@@ -126,33 +148,31 @@ void loop() {
   }
 
   // Check if the client is still connected
-  if (!mWifiClient.connected() and (millis()-tLastConnected)>timeoutSocketConnection) {
+  /*if (!mWifiClient.connected() and (millis()-tLastConnected)>timeoutSocketConnection) {
     Serial.println("Client disconnected");
     // reconnect
     announceCameraPort();
     cameraSocketConnect();
-  }
+  }*/
 
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) {
-    Serial.println("Camera capture failed");
-    esp_camera_fb_return(fb);
-    return;
-  }
+    webSocket.loop();
+    uint64_t now = millis();
 
-  if (fb->format != PIXFORMAT_JPEG) {
-    Serial.println("Non-JPEG data not implemented");
-    return;
-  }
+    if(now - messageTimestamp > 30) {
+        messageTimestamp = now;
 
-  fb->buf[12] = createUniqueID(); //FIRST CAM
-  //fb->buf[12] = 0x02; //SECOND CAM
+        camera_fb_t * fb = NULL;
 
-  // Send the frame over the socket
-  mWifiClient.write((const char*) fb->buf, fb->len);
-  //client.sendBinary((const char*) fb->buf, fb->len);
-  esp_camera_fb_return(fb);
-
+        // Take Picture with Camera
+        fb = esp_camera_fb_get();  
+        if(!fb) {
+          Serial.println("Camera capture failed");
+          return;
+        }
+        
+        webSocket.sendBIN(fb->buf,fb->len);
+        esp_camera_fb_return(fb); 
+    }
 }
 
 

@@ -1,12 +1,41 @@
 import socket
 import multiprocessing
 import cv2
-import numpy as np
-import time
 import requests
+import numpy as np
 import json
+from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 import multiprocessing.shared_memory as shm
 import array
+
+class CameraSocket(WebSocket):
+    @classmethod
+    def set_callback(cls, callback):
+        """Set a callback function at the class level."""
+        cls._callback = staticmethod(callback)
+
+    def handleConnected(self):
+        print(f"Client {self.address} connected")
+        # try retreiving the camera id by get-requesting IP/getId
+        # Construct the URL
+        port = self.address[1]
+        self.cameraID = port - 8000
+       
+    def handleClose(self):
+        print(f"Client {self.address} closed")
+
+    def handleMessage(self):
+        # The data received is stored in self.data
+        # Convert the bytes to numpy array and decode the image
+        nparr = np.frombuffer(self.data, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # Display the image
+        #cv2.imshow(f'Camera {self.address[1]}', image)  # Using port number as an ID
+        #cv2.waitKey(1)
+        # If a callback is set, call it
+        if hasattr(self.__class__, '_callback'):
+            self._callback(self, image)
 
 class Canvas:
     def __init__(self, width=320, height=240, rows=6, cols=4):
@@ -87,72 +116,21 @@ class CameraDisplayServer:
             return True  # Port is already in use
         finally:
             s.close()  # Close the socket
-            
+    
     def camera_listener(self, port, cameraID, lock):
-        # check if port is already blocked 
-        portInUse = self.is_port_in_use(port)
-        # check if port is already in use, if so, stop the process and remove it from the queue
-        if port in self.camera_ports and portInUse:
-            print(f"Port {port} is already in use. Not spinning up camera.")
-            return 
-           
-        # Create a socket object
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-         
-        # Bind the socket to a specific IP address and port
-        s.bind(('0.0.0.0', port))
-
-        # Listen for incoming connections
-        s.listen(1)
-
-        # Wait for a client to connect
-        client_socket, client_address = s.accept()
-        print("Connected to client: ", client_address)
-        
-        # try retreiving the camera id by get-requesting IP/getId
-        # Construct the URL
-        url = f"http://{client_address[0]}/getId"
-
-        # Make the GET request
-        response = requests.get(url)
-
-        # Print the response
-        if response.status_code == 200:
-            # convert json response to int
-            cameraID = json.loads(response.text)["id"]
-            print(f"Camera ID: {cameraID}")
-            with lock:
-                canvasID = self.getCanvasID(cameraID)
-        else:
-            print(f"Request failed with status code: {response.status_code}")
+        with lock:
+            canvasID = self.getCanvasID(port-8000)
             
-        timeLastFrame = time.time()
-        while True:
-            if port not in self.camera_ports:
-                break
-            try:
-                data = client_socket.recv(self.buffer_size)
-            except Exception as e: 
-                print(e)
-                self.camera_ports.remove(port)
-                break
-            try:
-                frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-                if time.time() - timeLastFrame > self.timeoutLastFrame:
-                    print("No frame received for 5 seconds.")
-                    client_socket.close()
-                    self.camera_ports.remove(port)
-                    break
-                if frame is not None:
-                    self.q.put((canvasID, frame))
-                    timeLastFrame = time.time()
-            except:
-                pass 
-        s.close()
-        try:self.camera_ports.remove(port)
-        except:pass
+        def addToQueue(socket_instance, image=None):
+            #print(f"Received image from {socket_instance.address}")
+            #port = socket_instance.address[1]
+            self.q.put((canvasID, image))
+        # Set the callback for CameraSocket class
+        CameraSocket.set_callback(addToQueue)
+        server = SimpleWebSocketServer('0.0.0.0', port, CameraSocket)
+        print(f"Server started on port {port}")
+        server.serveforever()
         
-
     def getCanvasID(self, cameraID):
         # we need to map the random, yet unique (per ESP) camera ID to the 0-23 canvas ID
         
