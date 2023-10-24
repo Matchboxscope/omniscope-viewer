@@ -53,13 +53,13 @@ void setup() {
 
   // Setup Websocket client
   //cameraSocketConnect();
-  
+
   // server address, port and URL
   webSocket.begin(websockets_server_host_default, cameraPort, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
-  webSocket.enableHeartbeat(15000, 3000, 2); 
-    
+  webSocket.enableHeartbeat(15000, 3000, 2);
+
   // indicate wifi LED
   ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
   ledcAttachPin(LED_GPIO_NUM, LED_LEDC_CHANNEL);
@@ -164,14 +164,14 @@ void loop() {
         camera_fb_t * fb = NULL;
 
         // Take Picture with Camera
-        fb = esp_camera_fb_get();  
+        fb = esp_camera_fb_get();
         if(!fb) {
           Serial.println("Camera capture failed");
           return;
         }
-        
+
         webSocket.sendBIN(fb->buf,fb->len);
-        esp_camera_fb_return(fb); 
+        esp_camera_fb_return(fb);
     }
 }
 
@@ -192,7 +192,7 @@ bool isValidIP(const String &str) {
       return false;
     }
   }
-  
+
   if (partCount != 3 || parts[3] > 255) return false;
 
   return true;
