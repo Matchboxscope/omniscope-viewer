@@ -3,17 +3,52 @@ import multiprocessing
 import cv2
 import requests
 import numpy as np
+import time
 import json
-from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 import multiprocessing.shared_memory as shm
-from websocket_server import WebsocketServer
 import array
+#!pip install SimpleWebSocketServer
+from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
+import threading
+
+class CameraListener(WebSocket):
+
+    @classmethod
+    def setFrameCallback(cls, callback):
+        """Set a callback function at the class level."""
+        cls._frameCallback = staticmethod(callback)
+        
+    def handleConnected(self):
+        print(f"Client {self.address} connected")
+        # try retreiving the camera id by get-requesting IP/getId
+        # Construct the URL
+        port = self.address[1]
+        self.cameraID = port - 8000
+
+    def handleClose(self):
+        print(f"Client {self.address} closed")
+
+    def handleMessage(self):
+        self.tLastFrame = time.time()  # Update the time when a new frame is received
+        print(self.data)
+       
+        # If a callback is set, call it
+        if hasattr(self.__class__, '_frameCallback'):
+                self._frameCallback(self, self.data)
+                
 
 class CameraSocket(WebSocket):
+    
+    def __init__(self, server, sock, address):
+        super().__init__(server, sock, address)
+        self.tLastFrame = time.time()
+        self.timeoutChecker = threading.Thread(target=self.checkTimeout)
+        self.timeoutChecker.start()
+
     @classmethod
-    def set_callback(cls, callback):
+    def setFrameCallback(cls, callback):
         """Set a callback function at the class level."""
-        cls._callback = staticmethod(callback)
+        cls._frameCallback = staticmethod(callback)
 
     def handleConnected(self):
         print(f"Client {self.address} connected")
@@ -26,6 +61,8 @@ class CameraSocket(WebSocket):
         print(f"Client {self.address} closed")
 
     def handleMessage(self):
+        self.tLastFrame = time.time()  # Update the time when a new frame is received
+        
         # The data received is stored in self.data
         # Convert the bytes to numpy array and decode the image
         nparr = np.frombuffer(self.data, np.uint8)
@@ -35,8 +72,14 @@ class CameraSocket(WebSocket):
         #cv2.imshow(f'Camera {self.address[1]}', image)  # Using port number as an ID
         #cv2.waitKey(1)
         # If a callback is set, call it
-        if hasattr(self.__class__, '_callback'):
-            self._callback(self, image)
+        if hasattr(self.__class__, '_frameCallback'):
+            self._frameCallback(self, image)
+            
+    def checkTimeout(self):
+        while True:
+            time.sleep(1)  # Check every second
+            if time.time() - self.tLastFrame > 3:
+                self.close()
 
 class Canvas:
     def __init__(self, width=320, height=240, rows=6, cols=4):
@@ -82,6 +125,7 @@ class CameraDisplayServer:
         self.width = width
         self.height = height
         self.timeoutLastFrame = 5
+        self.iCameras = 0
 
         # Create a shared memory segment
         # Create an array of 16-bit signed integers initialized to -1
@@ -110,6 +154,7 @@ class CameraDisplayServer:
             s.close()  # Close the socket
 
     def camera_listener(self, port, cameraID, lock):
+        print("start the camera_listener")
         with lock:
             canvasID = self.getCanvasID(port-8000)
 
@@ -117,8 +162,9 @@ class CameraDisplayServer:
             #print(f"Received image from {socket_instance.address}")
             #port = socket_instance.address[1]
             self.q.put((canvasID, image))
+            
         # Set the callback for CameraSocket class
-        CameraSocket.set_callback(addToQueue)
+        CameraSocket.setFrameCallback(addToQueue)
         server = SimpleWebSocketServer('0.0.0.0', port, CameraSocket)
         print(f"Server started on port {port}")
         server.serveforever()
@@ -147,24 +193,46 @@ class CameraDisplayServer:
 
     def display_frames(self):
         while True:
-            if not self.q.empty():
+            while not self.q.empty():
                 canvasID, frame = self.q.get()
                 self.canvas.add_frame(frame, canvasID)
             concatenated_frame = self.canvas.get_canvas()
 
             cv2.imshow("Cameras", concatenated_frame)
             cv2.waitKey(1)
+            
 
     def run(self):
+        
+        def addToQueue(socket_instance, port=None):
+            #print(f"Received image from {socket_instance.address}")
+            #port = socket_instance.address[1]
+            
+            camera_port = int(port)
+            print(f"Received port {camera_port}")
+            p = multiprocessing.Process(target=self.camera_listener, args=(camera_port,self.iCameras,self.lock,))
+            p.start()
+            self.iCameras += 1
+
+        # Start display process
+        p_display = multiprocessing.Process(target=self.display_frames)
+        p_display.start()
+            
+        # Set the callback for CameraSocket class
+        CameraListener.setFrameCallback(addToQueue)
+        CameraListenerServer = SimpleWebSocketServer('0.0.0.0', self.listen_port, CameraListener)
+        
+        
+        print(f"Server started on port {self.listen_port}")
+        CameraListenerServer.serveforever()
+        
+        
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind(('0.0.0.0', self.listen_port))
         server_socket.listen(24)  # Expecting up to 24 connections
         iCameras = 0
         print(f"Listening for cameras on port {self.listen_port}")
 
-        # Start display process
-        p_display = multiprocessing.Process(target=self.display_frames)
-        p_display.start()
 
 
         try:
@@ -184,9 +252,6 @@ class CameraDisplayServer:
                     print(e)
                     continue
 
-                self.camera_ports.add(camera_port)
-                print(f"Received port {camera_port} from {addr[0]}:{addr[1]}")
-                p = multiprocessing.Process(target=self.camera_listener, args=(camera_port,iCameras,self.lock,))
 
                 p.start()
 

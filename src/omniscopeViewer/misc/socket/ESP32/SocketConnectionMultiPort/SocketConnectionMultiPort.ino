@@ -12,18 +12,21 @@ AsyncWebServer server(80);
 Preferences preferences;
 WiFiClient mWifiClient;
 
-const char* ssid = "BenMur"; // "omniscope"; //"Blynk1";
-const char* password = "MurBen3128"; //"omniscope"; //"12345678";
-const char* websockets_server_host_default = "192.168.2.191"; //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
+const char* ssid = "omniscope"; //"Blynk1";
+const char* password = "omniscope"; //"12345678";
+const char* websockets_server_host_default = "192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
 const char* websockets_server_host = "0.0.0.0"; //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
 const uint16_t serverPort = 3333; //CHANGE HERE
 uint32_t cameraPort = 8001; // default port
 
-long tLastConnected = 0;
+bool portAnnounced = false; 
 long timeoutSocketConnection = 5000; // ms
+bool isWSconnected = false;
 
-using namespace websockets;
-WebsocketsClient wsclient;
+unsigned long messageTimestamp = 0;
+
+WebSocketsClient webSocket;
+WebSocketsClient webSocketAnnouncePort;
 
 void setup() {
   Serial.begin(115200);
@@ -32,7 +35,7 @@ void setup() {
   preferences.begin("network", false);
   websockets_server_host = preferences.getString("wshost", websockets_server_host).c_str();
   preferences.end();
-  if(not isValidIP(websockets_server_host)){
+  if (not isValidIP(websockets_server_host)) {
     Serial.println("IP from Prefs not valid, switching to defaultx");
     Serial.println(websockets_server_host_default);
     websockets_server_host = websockets_server_host_default;
@@ -44,16 +47,20 @@ void setup() {
   //scanWifi();
   initWifi();
   pingServer();
-  //initServer();
-  cameraPort = 8000 + createUniqueID();
+  initServer();
+  int uniqueID = createUniqueID();
+  preferences.begin("network", false);
+  uniqueID = preferences.getInt("uid", uniqueID);
+  preferences.end();
+  Serial.print("Unique ID: ");
+  Serial.println(uniqueID);
+
+  cameraPort = 8000 + uniqueID;
   announceCameraPort();
 
-
-  // Setup Websocket client
-  //cameraSocketConnect();
-
+  //
   // server address, port and URL
-  webSocket.begin(websockets_server_host_default, cameraPort, "/");
+  webSocket.begin(websockets_server_host, cameraPort, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
   webSocket.enableHeartbeat(15000, 3000, 2);
@@ -68,15 +75,41 @@ void setup() {
 
 }
 
+
+
+void webSocketPortAnnouncementEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+    case WStype_DISCONNECTED:
+      Serial.printf("[WebSocket] Disconnected!\n");
+      break;
+    case WStype_CONNECTED:
+      {
+        if (not portAnnounced){
+        Serial.printf("[WebSocket] Connected to: %s\n", payload);
+        // send message to server when Connected
+        String message = String(cameraPort);
+        webSocketAnnouncePort.sendTXT(message);
+        portAnnounced = true;
+        Serial.printf("[WebSocket] Sending message: %s\n", message);
+        }
+      }
+      break;
+  }
+}
+
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
-  switch(type) {
+  switch (type) {
     case WStype_DISCONNECTED:
       Serial.printf("[WSc] Disconnected!\n");
+      isWSconnected = false;
+      portAnnounced = false;
+      //ESP.restart();
       break;
     case WStype_CONNECTED: {
-      Serial.printf("[WSc] Connected to url: %s\n", payload);
-    }
+        Serial.printf("[WSc] Connected to url: %s\n", payload);
+        isWSconnected = true;
+      }
       break;
     case WStype_TEXT:
       Serial.printf("[WSc] get text: %s\n", payload);
@@ -85,23 +118,24 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       Serial.printf("[WSc] get binary length: %u\n", length);
       break;
     case WStype_PING:
-        // pong will be send automatically
-        Serial.printf("[WSc] get ping\n");
-        break;
+      // pong will be send automatically
+      Serial.printf("[WSc] get ping\n");
+      break;
     case WStype_PONG:
-        // answer to a ping we send
-        Serial.printf("[WSc] get pong\n");
-        break;
-    }
-}
-bool pingServer(){
-    // Ping socket server
-  bool success = Ping.ping(websockets_server_host, 3);
-  if(!success){
-      Serial.println("Ping failed");
-      return false;
+      // answer to a ping we send
+      Serial.printf("[WSc] get pong\n");
+      break;
   }
-  else{
+}
+bool pingServer() {
+  // Ping socket server
+  bool success = Ping.ping(websockets_server_host, 1);
+  if (!success) {
+    Serial.print("Ping failed on");
+    Serial.println(websockets_server_host);
+    return false;
+  }
+  else {
     Serial.println("Ping succesful.");
     return true;
   }
@@ -109,26 +143,37 @@ bool pingServer(){
 
 }
 
-void cameraSocketConnect() {
-
-
-  Serial.print("Connecting to CameraSocket on port");
-  Serial.println(cameraPort);
-  int nConnectionTrials = 0;
-}
-
 
 void announceCameraPort() {
   // Announce camera port via socket connection
   Serial.print("Announcing the camera port: ");
-  Serial.println(cameraPort);
-  while (!mWifiClient.connect(websockets_server_host, serverPort)) {
+  Serial.print(cameraPort);
+  Serial.print(" on: ");
+  Serial.print(websockets_server_host);
+  Serial.print(":");
+  Serial.println(serverPort);
+  int iAnnouncmentTrial = 0;
+
+  // server address, port and URL
+  webSocketAnnouncePort.begin(websockets_server_host, serverPort, "/");
+  webSocketAnnouncePort.onEvent(webSocketPortAnnouncementEvent);
+  webSocketAnnouncePort.setReconnectInterval(5000);
+  webSocketAnnouncePort.enableHeartbeat(15000, 3000, 2);
+
+  /*
+    while (!mWifiClient.connect(websockets_server_host, serverPort)) {
     Serial.print(".");
-    delay(500);
-  }
-  mWifiClient.print(cameraPort);
-  Serial.println("Camera Port sent");
-  mWifiClient.stop();
+    delay(100);
+    iAnnouncmentTrial += 1;
+    if (iAnnouncmentTrial > 10) {
+    Serial.println("Timeout in finding the server");
+    break; // perhaps already announced?
+    }
+    }
+    mWifiClient.print(cameraPort);
+    Serial.println("Camera Port sent");
+    mWifiClient.stop();
+  */
 }
 
 void loop() {
@@ -139,38 +184,34 @@ void loop() {
     ledcWrite(LED_LEDC_CHANNEL, 255);
     ESP.restart();
   }
-  {
+  else  {
     // indicate we are connected to the  WIFI
     ledcWrite(LED_LEDC_CHANNEL, 0);
     ArduinoOTA.handle();
+    webSocket.loop();
+    webSocketAnnouncePort.loop();
   }
 
-  // Check if the client is still connected
-  /*if (!mWifiClient.connected() and (millis()-tLastConnected)>timeoutSocketConnection) {
-    Serial.println("Client disconnected");
-    // reconnect
-    announceCameraPort();
-    cameraSocketConnect();
-  }*/
 
-    webSocket.loop();
-    uint64_t now = millis();
 
-    if(now - messageTimestamp > 30) {
-        messageTimestamp = now;
+  uint64_t now = millis();
 
-        camera_fb_t * fb = NULL;
+  if (now - messageTimestamp > 30) {
+    messageTimestamp = now;
 
-        // Take Picture with Camera
-        fb = esp_camera_fb_get();
-        if(!fb) {
-          Serial.println("Camera capture failed");
-          return;
-        }
+    camera_fb_t * fb = NULL;
 
-        webSocket.sendBIN(fb->buf,fb->len);
-        esp_camera_fb_return(fb);
+    // Take Picture with Camera
+    fb = esp_camera_fb_get();
+    if (!fb) {
+      Serial.println("Camera capture failed");
+      return;
     }
+
+    webSocket.sendBIN(fb->buf, fb->len);
+    esp_camera_fb_return(fb);
+    
+  }
 }
 
 
@@ -229,10 +270,45 @@ void initServer() {
     request->send(200, "application/json", message);
   });
 
+  server.on("/setUniqueID", HTTP_GET, [](AsyncWebServerRequest * request) {
+    String message;
+    Serial.println("setUniqueID");
+
+    // Check if query parameter uid exists
+    if (request->hasParam("uid")) {
+      String uidStr = request->getParam("uid")->value(); // Get the uid as a String
+      int uid = uidStr.toInt();                         // Convert the String to an integer
+      Serial.println(uid);
+
+      preferences.begin("network", false);
+      preferences.putInt("uid", uid);
+      preferences.end();
+
+      message = "{\"success\":\"Unique ID updated\"}";
+      request->send(200, "application/json", message);
+
+      // Restart the ESP
+      ESP.restart();
+
+    } else {
+      message = "{\"error\":\"No Unique ID provided\"}";
+      request->send(200, "application/json", message);
+    }
+  });
+
+
   server.on("/getId", HTTP_GET, [](AsyncWebServerRequest * request) {
     uint32_t uniqueId = createUniqueID();
     String message = "{\"id\":\"" + String(uniqueId) + "\"}";
     request->send(200, "application/json", message);
+  });
+  server.on("/resetESP", HTTP_GET, [](AsyncWebServerRequest * request) {
+    String message = "{\"id\":\"" + String(1) + "\"}";
+    request->send(200, "application/json", message);
+    preferences.begin("network", false);
+    preferences.clear();
+    preferences.end();
+    ESP.restart();
   });
   server.begin();
 }
@@ -244,7 +320,7 @@ void  initWifi() {
   WiFi.setSleep(false);
   int iWifiTrial = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    delay(100);
     Serial.print(".");
     iWifiTrial ++;
     if (iWifiTrial > 10)
@@ -390,5 +466,5 @@ uint32_t createUniqueID() {
   uint32_t upper = mac >> 32; // Get upper 16 bits
   uint32_t lower = mac & 0xFFFFFFFF; // Get lower 32 bits
   uint32_t uid = upper ^ lower; // XOR upper and lower parts to get a 32-bit result
-  return uid%1000;
+  return uid % 1000;
 }
