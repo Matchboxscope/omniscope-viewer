@@ -62,7 +62,7 @@ void setup() {
   // server address, port and URL
   webSocket.begin(websockets_server_host, cameraPort, "/");
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
+  webSocket.setReconnectInterval(1000);
   webSocket.enableHeartbeat(15000, 3000, 2);
 
   // indicate wifi LED
@@ -161,7 +161,7 @@ void announceCameraPort() {
   // server address, port and URL
   webSocketAnnouncePort.begin(websockets_server_host, serverPort, "/");
   webSocketAnnouncePort.onEvent(webSocketPortAnnouncementEvent);
-  webSocketAnnouncePort.setReconnectInterval(5000);
+  webSocketAnnouncePort.setReconnectInterval(1000);
   webSocketAnnouncePort.enableHeartbeat(15000, 3000, 2);
 
 }
