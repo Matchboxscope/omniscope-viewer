@@ -2,10 +2,13 @@ import socket
 import requests
 import threading
 import time 
+
+DEBUG=False
 class ESP32Scanner(object):
 
     def __init__(self):
         self.cameraURLs = []  # Initialize a list to store camera URLs
+        self.cameraIDs = []  # Initialize a list to store camera IDs
         # Define the range of IP addresses to scan
         start_ip = 1
         end_ip = 255
@@ -18,11 +21,12 @@ class ESP32Scanner(object):
 
             # Scanning IP addresses within the defined range
             scannedIPs = self.scan_ips(baseUrl, start_ip, end_ip)
-            print("Scanned IP addresses:", scannedIPs)
+            if DEBUG: print("Scanned IP addresses:", scannedIPs)
 
             # Create a list of URLs from the scanned IPs
             for iIP in scannedIPs:
                 self.cameraURLs.append(iIP["IP"])
+                self.cameraIDs.append(iIP["ID"])
 
     def get_all_ip_addresses(self):
         """
@@ -54,7 +58,7 @@ class ESP32Scanner(object):
         """
         url = f"http://{server_ip}/getId"
         try:
-            print("Scanning IP:", server_ip)
+            if DEBUG: print("Scanning IP:", server_ip)
             response = requests.get(url, timeout=0.5)
             response.raise_for_status()  # This will raise an HTTPError if the HTTP request returned an unsuccessful status code.
 
@@ -74,12 +78,12 @@ class ESP32Scanner(object):
             responseID = self.get_unique_id(ip_address) 
             if responseID is not None:
                 
-                print(f"Connected device found at IP: {ip_address}")
-                print("Status:", responseID)
+                if DEBUG: print(f"Connected device found at IP: {ip_address}")
+                if DEBUG: print("Status:", responseID)
                 results.append({"IP": ip_address, "ID": responseID})
 
             else:
-                print(f"No device found at IP: {ip_address}")
+                if DEBUG: print(f"No device found at IP: {ip_address}")
 
         except requests.exceptions.RequestException:
             print(f"No response from IP: {ip_address}")
@@ -106,3 +110,4 @@ class ESP32Scanner(object):
 if __name__ == "__main__":
     scanner = ESP32Scanner()  # Create an instance of the scanner
     print("Detected Cameras:", scanner.cameraURLs)  # Print the detected camera URLs
+    print(scanner.cameraIDs)

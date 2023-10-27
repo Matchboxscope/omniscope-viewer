@@ -10,6 +10,113 @@ import array
 #!pip install SimpleWebSocketServer
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 import threading
+import socket
+import requests
+import threading
+import time 
+
+DEBUG=False
+class ESP32Scanner(object):
+
+    def __init__(self):
+        self.cameraURLs = []  # Initialize a list to store camera URLs
+        self.cameraIDs = []  # Initialize a list to store camera IDs
+        # Define the range of IP addresses to scan
+        start_ip = 1
+        end_ip = 255
+
+        # Get all available host IP addresses
+        allHostIpAdresses = self.get_all_ip_addresses()
+        for ipAddress in allHostIpAdresses:
+            # Base URL formation (excluding the last segment of the IP address)
+            baseUrl = ".".join(ipAddress.split('.')[:-1]) + "."
+
+            # Scanning IP addresses within the defined range
+            scannedIPs = self.scan_ips(baseUrl, start_ip, end_ip)
+            if DEBUG: print("Scanned IP addresses:", scannedIPs)
+
+            # Create a list of URLs from the scanned IPs
+            for iIP in scannedIPs:
+                self.cameraURLs.append(iIP["IP"])
+                self.cameraIDs.append(iIP["ID"])
+
+    def get_all_ip_addresses(self):
+        """
+        Retrieves all IP addresses associated with the host machine.
+        """
+        ip_addresses = []
+
+        # Get the host name
+        host_name = socket.gethostname()
+
+        # Get all IP addresses associated with the host name
+        try:
+            ip_addresses = socket.gethostbyname_ex(host_name)[-1]
+        except socket.gaierror:
+            pass  # Ignore errors in name resolution
+
+        return ip_addresses
+
+
+    def get_unique_id(self, server_ip):
+        """
+        Sends a GET request to the server to retrieve a unique ID.
+        
+        Args:
+        - server_ip (str): The IP address of the ESP32 server.
+
+        Returns:
+        - int: The unique ID received from the server, or None if the request fails.
+        """
+        url = f"http://{server_ip}/getId"
+        try:
+            if DEBUG: print("Scanning IP:", server_ip)
+            response = requests.get(url, timeout=0.5)
+            response.raise_for_status()  # This will raise an HTTPError if the HTTP request returned an unsuccessful status code.
+
+            # Assuming the server responds with a JSON in the format: {"id": "<uniqueId>"}
+            data = response.json()
+            return data.get("id")
+
+        except Exception as e:
+            pass
+        return None
+    
+    def scan_ip(self, ip_address, results):
+        """
+        Scans a single IP address for a specific service and records if found.
+        """
+        try:
+            responseID = self.get_unique_id(ip_address) 
+            if responseID is not None:
+                
+                if DEBUG: print(f"Connected device found at IP: {ip_address}")
+                if DEBUG: print("Status:", responseID)
+                results.append({"IP": ip_address, "ID": responseID})
+
+            else:
+                if DEBUG: print(f"No device found at IP: {ip_address}")
+
+        except requests.exceptions.RequestException:
+            print(f"No response from IP: {ip_address}")
+
+    def scan_ips(self, baseUrl, start_ip, end_ip):
+        """
+        Scans a range of IPs within the subnet to identify available devices.
+        """
+        results = []
+        threads = []
+        for i in range(start_ip, end_ip + 1):
+            ip_address = baseUrl + str(i)
+            thread = threading.Thread(target=self.scan_ip, args=(ip_address, results))
+            thread.start()
+            threads.append(thread)
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        return results
 
 class CameraListener(WebSocket):
 
@@ -116,7 +223,7 @@ class Canvas:
 
 class CameraDisplayServer:
 
-    def __init__(self, listen_port=3333, buffer_size=2**17, queue_size=100, width=320, height=240):
+    def __init__(self, allCameraPorts=None, listen_port=3333, buffer_size=2**17, queue_size=100, width=320, height=240):
         # look-up table for camera IDs and their corresponding locations in the 24-tiled canvas
         self.cameraID_to_canvasID = None
 
@@ -127,6 +234,7 @@ class CameraDisplayServer:
         self.height = height
         self.timeoutLastFrame = 5
         self.iCameras = 0
+        self.allCameraPorts = allCameraPorts
 
         # Create a shared memory segment
         # Create an array of 16-bit signed integers initialized to -1
@@ -201,12 +309,12 @@ class CameraDisplayServer:
         display server in case a camera is connected. Additionally, we dispatch the port number and assign
         it to the Display ID in the 2D grid 
         '''
-        self.allCameraPorts = []
+        
         def addToQueue(socket_instance, port=None):
             camera_port = int(port)
             if camera_port not in self.allCameraPorts:
                 print(f"Received port {camera_port}")
-                p = multiprocessing.Process(target=self.frame_listener, args=(camera_port,self.iCameras,self.lock,))
+                p = multiprocessing.Process(target=self.frame_listener, args=(camera_port+8000,self.iCameras,self.lock,))
                 p.start()
                 self.iCameras += 1
                 self.allCameraPorts.append(camera_port)
@@ -217,47 +325,40 @@ class CameraDisplayServer:
         p_display = multiprocessing.Process(target=self.display_frames)
         p_display.start()
             
-        # Set the callback for CameraSocket class
-        CameraListener.setStartCameraThreadCallback(addToQueue)
-        CameraListenerServer = SimpleWebSocketServer('0.0.0.0', self.listen_port, CameraListener)
+        # need to serve this forever 
+        
+        if self.allCameraPorts is not None:
+            allProcesses = []
+            # we have the ports available alreaady 
+            for camera_port in self.allCameraPorts:
+                print(f"Received port {camera_port}")
+                allProcesses.append(multiprocessing.Process(target=self.frame_listener, args=(int(camera_port)+8000,self.iCameras,self.lock,)))
+                allProcesses[-1].start()
+                
+            for p in allProcesses:
+                p.join()
+        else:                
+            # Set the callback for CameraSocket class
+            CameraListener.setStartCameraThreadCallback(addToQueue)
+            CameraListenerServer = SimpleWebSocketServer('0.0.0.0', self.listen_port, CameraListener)
         
         
-        print(f"Server started on port {self.listen_port}")
-        CameraListenerServer.serveforever()
+            print(f"Server started on port {self.listen_port}")
+            CameraListenerServer.serveforever()
         
         
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.bind(('0.0.0.0', self.listen_port))
-        server_socket.listen(24)  # Expecting up to 24 connections
-        iCameras = 0
-        print(f"Listening for cameras on port {self.listen_port}")
 
-
-
-        try:
-            while True:
-                iCameras += 1
-                conn, addr = server_socket.accept()
-                data = conn.recv(self.buffer_size)
-                print(f"Incoming connecton from {addr}")
-
-                # send back the port number to the camera
-                #camera_port = 8000+iCameras
-                #conn.send(str(camera_port).encode())
-
-                try:
-                    camera_port  = int(data.decode().strip())
-                except Exception as e:
-                    print(e)
-                    continue
-
-
+        '''
         finally:
             server_socket.close()
             self.segment.close()
             self.segment.unlink()
             p_display.terminate()
-
+        '''
+        
 if __name__ == '__main__':
-    server = CameraDisplayServer()
+    scanner = ESP32Scanner()  # Create an instance of the scanner
+    print("Detected Cameras:", scanner.cameraURLs)  # Print the detected camera URLs
+    allCameraPorts = scanner.cameraIDs
+    server = CameraDisplayServer(allCameraPorts)
     server.run()

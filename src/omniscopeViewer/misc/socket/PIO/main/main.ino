@@ -12,13 +12,22 @@ AsyncWebServer server(80);
 Preferences preferences;
 WiFiClient mWifiClient;
 
+//#define OFFICE
+#ifdef OFFICE
 const char *ssid = "omniscope";                               //"Blynk1";
 const char *password = "omniscope";                           //"12345678";
 const char *websockets_server_host_default = "192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
 const char *websockets_server_host = "0.0.0.0";               //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
 const uint16_t serverPort = 3333;                             // CHANGE HERE
 uint32_t cameraPort = 8001;                                   // default port
-
+#else
+char *ssid = "BenMur";                               //"Blynk1";
+const char *password = "MurBen3128";                           //"12345678";
+const char *websockets_server_host_default = "192.168.2.191"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
+const char *websockets_server_host = "0.0.0.0";               //"192.168.0.176"; //"192.168.0.176"; //BLYNK: "192.168.43.235"; //CHANGE HERE
+const uint16_t serverPort = 3333;                             // CHANGE HERE
+uint32_t cameraPort = 8001;                                   // default port
+#endif
 bool portAnnounced = false;
 long timeoutSocketConnection = 5000; // ms
 bool isWSconnected = false;
@@ -59,13 +68,13 @@ void setup()
   Serial.println(uniqueID);
 
   cameraPort = 8000 + uniqueID;
-  announceCameraPort();
+  //announceCameraPort();
 
   //
   // server address, port and URL
   webSocket.begin(websockets_server_host, cameraPort, "/");
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(1000);
+  webSocket.setReconnectInterval(5000);
   webSocket.enableHeartbeat(15000, 3000, 2);
 
   // indicate wifi LED
@@ -75,6 +84,9 @@ void setup()
   // Start Arduino OTA
   ArduinoOTA.setHostname("esp32-ota");
   ArduinoOTA.begin(); // Port defaults to 3232
+
+  Serial.println("[Camera]: Ready to connect with IP address: "+String(websockets_server_host)+":"+String(cameraPort));
+  Serial.println("[WebSocket] Connecting to: " + String(websockets_server_host) + ":" + String(cameraPort));
 }
 
 void webSocketPortAnnouncementEvent(WStype_t type, uint8_t *payload, size_t length)
@@ -138,13 +150,12 @@ bool pingServer()
   bool success = Ping.ping(websockets_server_host, 1);
   if (!success)
   {
-    Serial.print("Ping failed on");
-    Serial.println(websockets_server_host);
+    log_e("Ping failed on: %s", websockets_server_host);
     return false;
   }
   else
   {
-    Serial.println("Ping succesful.");
+    log_d("Ping succesful.");
     return true;
   }
   return true;
@@ -153,18 +164,14 @@ bool pingServer()
 void announceCameraPort()
 {
   // Announce camera port via socket connection
-  Serial.print("Announcing the camera port: ");
-  Serial.print(cameraPort);
-  Serial.print(" on: ");
-  Serial.print(websockets_server_host);
-  Serial.print(":");
-  Serial.println(serverPort);
+  log_d("Announcing the camera port: %d on: %s:%d", cameraPort, websockets_server_host, serverPort);
 
   // server address, port and URL
   webSocketAnnouncePort.begin(websockets_server_host, serverPort, "/");
   webSocketAnnouncePort.onEvent(webSocketPortAnnouncementEvent);
-  webSocketAnnouncePort.setReconnectInterval(1000);
+  webSocketAnnouncePort.setReconnectInterval(5000);
   webSocketAnnouncePort.enableHeartbeat(15000, 3000, 2);
+  
 }
 
 void loop()
@@ -172,7 +179,7 @@ void loop()
 
   if (WiFi.status() != WL_CONNECTED)
   {
-    Serial.println("Wifi connection lost, restarting");
+    log_e("Wifi connection lost, restarting");
     ledcWrite(LED_LEDC_CHANNEL, 255);
     ESP.restart();
   }
@@ -187,7 +194,7 @@ void loop()
 
   uint64_t now = millis();
 
-  if (now - messageTimestamp > 30 and isWSconnected and not isSendImage)
+  if (now - messageTimestamp > 30 and not isSendImage)
   {
     messageTimestamp = now;
 
@@ -197,7 +204,7 @@ void loop()
     fb = esp_camera_fb_get();
     if (!fb)
     {
-      Serial.println("Camera capture failed");
+      log_e("Camera capture failed");
       return;
     }
 
@@ -242,23 +249,20 @@ void initServer()
 {
 
   // Setup Web server
-  Serial.println("Staring Server");
+  log_d("Staring Server");
   // Modify /setServer to handle HTTP_GET
   server.on("/setServer", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     String message;
-    Serial.println("setServer");
 
     // Check if query parameter server exists
     if (request->hasParam("server")) {
       String serverIP = request->getParam("server")->value();
-      Serial.println(serverIP);
+      log_d("Server IP: %s", serverIP.c_str());
 
       preferences.begin("network", false);
       preferences.putString("wshost", serverIP);
       preferences.end();
-
-
       message = "{\"success\":\"server IP updated\"}";
       request->send(200, "application/json", message);
 
@@ -296,7 +300,11 @@ void initServer()
       message = "{\"error\":\"No Unique ID provided\"}";
       request->send(200, "application/json", message);
     } });
-
+  server.on("restart", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    String message = "{\"id\":\"" + String(1) + "\"}";
+    request->send(200, "application/json", message);
+    ESP.restart(); });
   server.on("/getId", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     uint32_t uniqueId = createUniqueID();
@@ -328,33 +336,39 @@ void initServer()
                 FRAMESIZE_XGA (1024 x 768)
                 FRAMESIZE_SXGA (1280 x 1024)
               */
-
+              log_d("Setting frame size to UXGA");
               sensor_t *s = esp_camera_sensor_get();
-              s->set_framesize(s, FRAMESIZE_UXGA); // FRAMESIZE_QVGA);
+              s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_QVGA);
               // digest the settings => warmup camera
               camera_fb_t *fb = NULL;
-              for (int iDummyFrame = 0; iDummyFrame < 2; iDummyFrame++)
+              for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
               {
                 fb = esp_camera_fb_get();
-                if (!fb)
+                if (!fb){
                   log_e("Camera frame error", false);
+                   request->send(500, "text/plain", "Camera capture failed");
+                return;
+              
+                }
+                  
                 esp_camera_fb_return(fb);
               }
 
               fb = esp_camera_fb_get();
               if (!fb)
               {
-                Serial.println("Camera capture failed");
+                log_e("Camera capture failed");
                 request->send(500, "text/plain", "Camera capture failed");
                 return;
               }
-
+              log_d("Camera capture OK, sending out image via HTTP");
               AsyncWebServerResponse *response = request->beginResponse_P(200, "image/jpeg", fb->buf, fb->len);
               response->addHeader("Content-Disposition", "inline; filename=capture.jpg");
               request->send(response);
 
               esp_camera_fb_return(fb);
 
+              log_d("Setting frame size to QVGA");
               // revert to default settings
               s->set_framesize(s, FRAMESIZE_QVGA); // FRAMESIZE_QVGA);
               // digest the settings => warmup camera
@@ -365,6 +379,7 @@ void initServer()
                   log_e("Camera frame error", false);
                 esp_camera_fb_return(fb);
               }
+              isSendImage = false;
             });
   server.on("/resetESP", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -380,30 +395,26 @@ void initServer()
 void initWifi()
 {
 
-  Serial.println("Connecting to Wifi");
+  log_d("Connecting to Wifi");
   WiFi.begin(ssid, password);
   WiFi.setSleep(false);
   int iWifiTrial = 0;
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(100);
-    Serial.print(".");
+    log_d(".");
     iWifiTrial++;
-    if (iWifiTrial > 10)
+    if (iWifiTrial > 20)
     {
-      Serial.println("Couldn't establish Wifi connection");
+      log_e("Couldn't establish Wifi connection");
       ESP.restart();
     }
   }
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("Camera Stream Ready! Go to: http://");
-  Serial.println(WiFi.localIP());
+  log_d("Wifi connected, go to http://%s", WiFi.localIP().toString().c_str());
 }
 
 void initCamera()
 {
-  Serial.print("START");
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -450,7 +461,7 @@ void initCamera()
   }
   else
   {
-    Serial.println("NO PSRAM");
+    log_d("NO PSRAM");
     // Limit the frame size when PSRAM is not available
     config.frame_size = FRAMESIZE_QVGA;
     config.fb_location = CAMERA_FB_IN_DRAM;
@@ -460,21 +471,21 @@ void initCamera()
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK)
   {
-    Serial.printf("Camera init failed with error 0x%x", err);
+    log_e("Camera init failed with error 0x%x", err);
     return;
   }
 }
 
 void scanWifi()
 {
-  Serial.println("Scan start");
+  log_d("Wifi Scan start");
 
   // WiFi.scanNetworks will return the number of networks found.
   int n = WiFi.scanNetworks();
-  Serial.println("Scan done");
+  log_d("Scan done");
   if (n == 0)
   {
-    Serial.println("no networks found");
+    log_e("no networks found");
   }
   else
   {
