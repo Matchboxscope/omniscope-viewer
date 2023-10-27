@@ -14,22 +14,28 @@ import threading
 class CameraListener(WebSocket):
 
     @classmethod
-    def setStartCameraThreadCallback(cls, callback):
+    def setFrameCallback(cls, callback):
         """Set a callback function at the class level."""
-        cls._startCameraCallback = staticmethod(callback)
+        cls._frameCallback = staticmethod(callback)
         
     def handleConnected(self):
-        print(f"Port Announcer {self.address} connected")
-        # return with an accept message
-        self.sendMessage("accept".encode())
+        print(f"Client {self.address} connected")
         
+        # try retreiving the camera id by get-requesting IP/getId
+        # Construct the URL
+        port = self.address[1]
+        self.cameraID = port - 8000
+
     def handleClose(self):
-        print(f"Port Announcer  {self.address} closed")
+        print(f"Client {self.address} closed")
 
     def handleMessage(self):
-        if hasattr(self.__class__, '_startCameraCallback'):
-            print(f"Announcing the port: {self.data}")
-            self._startCameraCallback(self, self.data)
+        self.tLastFrame = time.time()  # Update the time when a new frame is received
+        print(self.data)
+       
+        # If a callback is set, call it
+        if hasattr(self.__class__, '_frameCallback'):
+                self._frameCallback(self, self.data)
                 
 
 class CameraSocket(WebSocket):
@@ -40,10 +46,6 @@ class CameraSocket(WebSocket):
         self.timeoutChecker = threading.Thread(target=self.checkTimeout)
         self.timeoutChecker.start()
 
-    @classmethod
-    def removePortCallback(cls, callback):
-        cls._removePortCallback = staticmethod(callback)
-          
     @classmethod
     def setFrameCallback(cls, callback):
         """Set a callback function at the class level."""
@@ -58,9 +60,7 @@ class CameraSocket(WebSocket):
 
     def handleClose(self):
         print(f"Client {self.address} closed")
-        if hasattr(self.__class__, '_removePortCallback'):
-            self._removePortCallback(self, self.cameraID)
-       
+
     def handleMessage(self):
         self.tLastFrame = time.time()  # Update the time when a new frame is received
         
@@ -140,11 +140,22 @@ class CameraDisplayServer:
         self.canvas = Canvas()
         self.lock = multiprocessing.Lock()
 
-    def frame_listener(self, port, cameraID, lock):
-        '''
-        here we start a socket server that waits for all frames that chime in 
-        '''
-        print("start the frame_listener")
+    @staticmethod
+    def is_port_in_use(port):
+        # Create a socket object
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        try:
+            # Attempt to bind the socket to the port
+            s.bind(('0.0.0.0', port))
+            return False  # Port is available
+        except OSError:
+            return True  # Port is already in use
+        finally:
+            s.close()  # Close the socket
+
+    def camera_listener(self, port, cameraID, lock):
+        print("start the camera_listener")
         with lock:
             canvasID = self.getCanvasID(port-8000)
 
@@ -153,12 +164,8 @@ class CameraDisplayServer:
             #port = socket_instance.address[1]
             self.q.put((canvasID, image))
             
-        def removePort(socket_instance, cameraID=1):
-            print("Removing port %i", cameraID)
-            
         # Set the callback for CameraSocket class
         CameraSocket.setFrameCallback(addToQueue)
-        CameraSocket.removePortCallback(removePort)
         server = SimpleWebSocketServer('0.0.0.0', port, CameraSocket)
         print(f"Server started on port {port}")
         server.serveforever()
@@ -184,6 +191,7 @@ class CameraDisplayServer:
                 print(f"Added cameraID {cameraID} to canvasID {idx}")
                 return idx
 
+
     def display_frames(self):
         while True:
             while not self.q.empty():
@@ -196,29 +204,23 @@ class CameraDisplayServer:
             
 
     def run(self):
-        '''
-        Here we start a socket server that listens to all cameras that are connecting and then start the
-        display server in case a camera is connected. Additionally, we dispatch the port number and assign
-        it to the Display ID in the 2D grid 
-        '''
-        self.allCameraPorts = []
+        
         def addToQueue(socket_instance, port=None):
+            #print(f"Received image from {socket_instance.address}")
+            #port = socket_instance.address[1]
+            
             camera_port = int(port)
-            if camera_port not in self.allCameraPorts:
-                print(f"Received port {camera_port}")
-                p = multiprocessing.Process(target=self.frame_listener, args=(camera_port,self.iCameras,self.lock,))
-                p.start()
-                self.iCameras += 1
-                self.allCameraPorts.append(camera_port)
-            else: 
-                print("camrea already connected ")
+            print(f"Received port {camera_port}")
+            p = multiprocessing.Process(target=self.camera_listener, args=(camera_port,self.iCameras,self.lock,))
+            p.start()
+            self.iCameras += 1
 
         # Start display process
         p_display = multiprocessing.Process(target=self.display_frames)
         p_display.start()
             
         # Set the callback for CameraSocket class
-        CameraListener.setStartCameraThreadCallback(addToQueue)
+        CameraListener.setFrameCallback(addToQueue)
         CameraListenerServer = SimpleWebSocketServer('0.0.0.0', self.listen_port, CameraListener)
         
         
@@ -251,6 +253,8 @@ class CameraDisplayServer:
                     print(e)
                     continue
 
+
+                p.start()
 
         finally:
             server_socket.close()
