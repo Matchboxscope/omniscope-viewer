@@ -19,7 +19,7 @@ const char* websockets_server_host = "0.0.0.0"; //"192.168.0.176"; //"192.168.0.
 const uint16_t serverPort = 3333; //CHANGE HERE
 uint32_t cameraPort = 8001; // default port
 
-bool portAnnounced = false; 
+bool portAnnounced = false;
 long timeoutSocketConnection = 5000; // ms
 bool isWSconnected = false;
 
@@ -78,19 +78,23 @@ void setup() {
 
 
 void webSocketPortAnnouncementEvent(WStype_t type, uint8_t * payload, size_t length) {
+  // This is the port announcement socket
   switch (type) {
     case WStype_DISCONNECTED:
       Serial.printf("[WebSocket] Disconnected!\n");
       break;
     case WStype_CONNECTED:
       {
-        if (not portAnnounced){
-        Serial.printf("[WebSocket] Connected to: %s\n", payload);
-        // send message to server when Connected
-        String message = String(cameraPort);
-        webSocketAnnouncePort.sendTXT(message);
-        portAnnounced = true;
-        Serial.printf("[WebSocket] Sending message: %s\n", message);
+        if (not portAnnounced) {
+          Serial.printf("[WebSocket] Connected to: %s\n", payload);
+          // send message to server when Connected
+          String message = String(cameraPort);
+          webSocketAnnouncePort.sendTXT(message);
+          portAnnounced = true;
+          Serial.printf("[WebSocket] Sending message: %s\n", message);
+        }
+        else{
+          Serial.println("Canno announce port, because we have done that already..");
         }
       }
       break;
@@ -98,7 +102,7 @@ void webSocketPortAnnouncementEvent(WStype_t type, uint8_t * payload, size_t len
 }
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-
+  // THis is the frame handler socket
   switch (type) {
     case WStype_DISCONNECTED:
       Serial.printf("[WSc] Disconnected!\n");
@@ -160,20 +164,6 @@ void announceCameraPort() {
   webSocketAnnouncePort.setReconnectInterval(5000);
   webSocketAnnouncePort.enableHeartbeat(15000, 3000, 2);
 
-  /*
-    while (!mWifiClient.connect(websockets_server_host, serverPort)) {
-    Serial.print(".");
-    delay(100);
-    iAnnouncmentTrial += 1;
-    if (iAnnouncmentTrial > 10) {
-    Serial.println("Timeout in finding the server");
-    break; // perhaps already announced?
-    }
-    }
-    mWifiClient.print(cameraPort);
-    Serial.println("Camera Port sent");
-    mWifiClient.stop();
-  */
 }
 
 void loop() {
@@ -210,7 +200,7 @@ void loop() {
 
     webSocket.sendBIN(fb->buf, fb->len);
     esp_camera_fb_return(fb);
-    
+
   }
 }
 
@@ -297,6 +287,16 @@ void initServer() {
   });
 
 
+  server.on("/getId", HTTP_GET, [](AsyncWebServerRequest * request) {
+    uint32_t uniqueId = createUniqueID();
+
+    // Adding compile date and time
+    String compileDate = __DATE__; // Compiler's date
+    String compileTime = __TIME__; // Compiler's time
+
+    String message = "{\"id\":\"" + String(uniqueId) + "\", \"compileDate\":\"" + compileDate + "\", \"compileTime\":\"" + compileTime + "\"}";
+    request->send(200, "application/json", message);
+  });
   server.on("/getId", HTTP_GET, [](AsyncWebServerRequest * request) {
     uint32_t uniqueId = createUniqueID();
     String message = "{\"id\":\"" + String(uniqueId) + "\"}";
