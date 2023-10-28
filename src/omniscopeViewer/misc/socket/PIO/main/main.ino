@@ -5,6 +5,17 @@
 #include "camerapins.h"
 #include <ArduinoOTA.h>
 #include <ESP32Ping.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEScan.h>
+#include <Arduino.h>
+
+// Task handle for the BLE task
+TaskHandle_t bleClientTaskHandle;
+
+// BLE UUIDs
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b" // Custom Service UUID
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8" // Custom Characteristic UUID
 
 #include <WebSocketsClient.h>
 
@@ -87,6 +98,20 @@ void setup()
 
   Serial.println("[Camera]: Ready to connect with IP address: "+String(websockets_server_host)+":"+String(cameraPort));
   Serial.println("[WebSocket] Connecting to: " + String(websockets_server_host) + ":" + String(cameraPort));
+
+
+
+  // Create and start the BLE client task
+  log_d("Starting BLE client task");
+  xTaskCreatePinnedToCore(
+    bleClientTask,     /* Task function. */
+    "BLEClientTask",   /* Name of the task. */
+    10000,             /* Stack size of the task */
+    NULL,              /* Parameter of the task */
+    1,                 /* Priority of the task */
+    &bleClientTaskHandle, /* Task handle */
+    0                  /* Core where the task should run */
+  );
 }
 
 void webSocketPortAnnouncementEvent(WStype_t type, uint8_t *payload, size_t length)
@@ -552,4 +577,48 @@ uint32_t createUniqueID()
   uint32_t lower = mac & 0xFFFFFFFF; // Get lower 32 bits
   uint32_t uid = upper ^ lower;      // XOR upper and lower parts to get a 32-bit result
   return uid % 1000;
+}
+
+void connectToServer(BLEAddress pAddress) {
+  BLEClient* pClient = BLEDevice::createClient();
+  pClient->connect(pAddress);
+
+  BLERemoteService* pRemoteService = pClient->getService(BLEUUID(SERVICE_UUID));
+  if (pRemoteService != nullptr) {
+    BLERemoteCharacteristic* pRemoteCharacteristic = pRemoteService->getCharacteristic(BLEUUID(CHARACTERISTIC_UUID));
+    if (pRemoteCharacteristic != nullptr) {
+      std::string value = pRemoteCharacteristic->readValue();
+      Serial.print("Read IP: ");
+      Serial.println(value.c_str());
+    }
+  }
+  pClient->disconnect();
+}
+
+
+void bleClientTask(void * pvParameter) {
+  Serial.print("BLE Client Task running on core ");
+  Serial.println(xPortGetCoreID());
+
+  // Initialize BLE
+  BLEDevice::init("");
+
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setActiveScan(true);
+  for (;;) {
+    BLEScanResults foundDevices = pBLEScan->start(5);
+    bool deviceFound = false;
+    for (int i = 0; i < foundDevices.getCount() && !deviceFound; i++) {
+      BLEAdvertisedDevice device = foundDevices.getDevice(i);
+      if (device.haveServiceUUID() && device.getServiceUUID().equals(BLEUUID(SERVICE_UUID))) {
+        Serial.println("Found our device! Connecting...");
+        connectToServer(device.getAddress());
+        deviceFound = true;
+      }
+    }
+    if (!deviceFound) {
+      Serial.println("Device not found. Scanning again...");
+    }
+    vTaskDelay(10000 / portTICK_PERIOD_MS); // Wait for 10 seconds before next scan
+  }
 }

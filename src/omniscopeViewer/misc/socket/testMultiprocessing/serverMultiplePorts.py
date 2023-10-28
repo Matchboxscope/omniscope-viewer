@@ -1,3 +1,7 @@
+'''
+pip3 install opencv-python
+pip3 install simple-websocket-server
+'''
 import socket
 import multiprocessing
 import cv2
@@ -5,7 +9,7 @@ import requests
 import numpy as np
 import time
 import json
-import multiprocessing.shared_memory as shm
+#import multiprocessing.shared_memory as shm
 import array
 #!pip install SimpleWebSocketServer
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
@@ -239,9 +243,9 @@ class CameraDisplayServer:
         # Create a shared memory segment
         # Create an array of 16-bit signed integers initialized to -1
         arr = array.array('h', [-1]*24)
-        self.segment = shm.SharedMemory(create=True, size=2*24)
+        #self.segment = shm.SharedMemory(create=True, size=2*24)
         # Initialize all slots as -1 (or 255 in bytes)
-        self.segment.buf[:2*24] = arr.tobytes()
+        #self.segment.buf[:2*24] = arr.tobytes()
 
         self.q = multiprocessing.Queue(self.queue_size)
         self.camera_ports = set()
@@ -275,23 +279,25 @@ class CameraDisplayServer:
         # we need to map the random, yet unique (per ESP) camera ID to the 0-23 canvas ID
 
         # Read shared memory data into an array
-        arr = array.array('h')
-        arr.frombytes(self.segment.buf[:])
+        if 0:
+            arr = array.array('h')
+            arr.frombytes(self.segment.buf[:])
 
-        # check if cameraID is already in the shared memory
-        for idx in range(24):
-            if arr[idx] == cameraID:
-                print(f"CameraID {cameraID} already in canvasID {idx}")
-                return idx
-        # if not, add it to the shared memory in an available slot
-        for idx in range(24):
-            if arr[idx] == -1:
-                arr[idx] = idx  # Just assigning idx for now, but you can use any value to mark it as used
-                # Write back the updated data to shared memory
-                self.segment.buf[:] = arr.tobytes()
-                print(f"Added cameraID {cameraID} to canvasID {idx}")
-                return idx
-
+            # check if cameraID is already in the shared memory
+            for idx in range(24):
+                if arr[idx] == cameraID:
+                    print(f"CameraID {cameraID} already in canvasID {idx}")
+                    return idx
+            # if not, add it to the shared memory in an available slot
+            for idx in range(24):
+                if arr[idx] == -1:
+                    arr[idx] = idx  # Just assigning idx for now, but you can use any value to mark it as used
+                    # Write back the updated data to shared memory
+                    self.segment.buf[:] = arr.tobytes()
+                    print(f"Added cameraID {cameraID} to canvasID {idx}")
+                    return idx
+        return cameraID
+    
     def display_frames(self):
         while True:
             while not self.q.empty():
